@@ -21,6 +21,7 @@ class Trade:
     position_size: float
     stop_loss: float
     take_profits: List[float]
+    is_relaxed: bool = False  # Whether this is a relaxed mode trade
     exit_time: Optional[pd.Timestamp] = None
     exit_price: Optional[float] = None
     exit_reason: Optional[str] = None
@@ -65,6 +66,11 @@ class Strategy_1:
                  trailing_atr_multiplier: float = 1.5,
                  tsl_activation_pips: float = 15,  # Pips profit to activate TSL
                  tsl_min_profit_pips: float = 5,   # Minimum pips to lock in
+                 exit_on_signal_flip: bool = True,  # Exit when indicators flip
+                 relaxed_mode: bool = False,  # Trade on NeuroTrend alone with tighter risk
+                 relaxed_tp_multiplier: float = 0.5,  # Multiply TP distances by this in relaxed mode
+                 relaxed_position_multiplier: float = 0.5,  # Multiply position size by this in relaxed mode
+                 relaxed_tsl_activation_pips: float = 8,  # Faster TSL activation in relaxed mode
                  max_tp_percent: float = 0.01,
                  min_lot_size: float = 1000000,  # 1M AUD minimum
                  pip_value_per_million: float = 100,
@@ -88,6 +94,16 @@ class Strategy_1:
             Pips of profit required to activate trailing stop (default 15)
         tsl_min_profit_pips : float
             Minimum pips of profit to lock in with trailing stop (default 5)
+        exit_on_signal_flip : bool
+            Whether to exit trades when indicators flip opposite (default True)
+        relaxed_mode : bool
+            Trade on NeuroTrend alone with reduced risk (default False)
+        relaxed_tp_multiplier : float
+            Multiply TP distances by this factor in relaxed mode (default 0.5)
+        relaxed_position_multiplier : float
+            Multiply position size by this factor in relaxed mode (default 0.5)
+        relaxed_tsl_activation_pips : float
+            Faster TSL activation in relaxed mode (default 8 pips)
         max_tp_percent : float
             Maximum take profit as percentage of entry price (e.g., 0.01 = 1%)
         min_lot_size : float
@@ -104,6 +120,11 @@ class Strategy_1:
         self.trailing_atr_multiplier = trailing_atr_multiplier
         self.tsl_activation_pips = tsl_activation_pips
         self.tsl_min_profit_pips = tsl_min_profit_pips
+        self.exit_on_signal_flip = exit_on_signal_flip
+        self.relaxed_mode = relaxed_mode
+        self.relaxed_tp_multiplier = relaxed_tp_multiplier
+        self.relaxed_position_multiplier = relaxed_position_multiplier
+        self.relaxed_tsl_activation_pips = relaxed_tsl_activation_pips
         self.max_tp_percent = max_tp_percent
         self.min_lot_size = min_lot_size
         self.pip_value_per_million = pip_value_per_million
@@ -118,7 +139,7 @@ class Strategy_1:
         self.equity_curve = []
         self.drawdown_curve = []
         
-    def calculate_position_size(self, entry_price: float, stop_loss: float) -> float:
+    def calculate_position_size(self, entry_price: float, stop_loss: float, is_relaxed: bool = False) -> float:
         """Calculate position size based on risk management rules"""
         risk_amount = self.current_capital * self.risk_per_trade
         price_risk_pips = abs(entry_price - stop_loss) * 10000  # Convert to pips for AUDUSD
@@ -133,6 +154,11 @@ class Strategy_1:
         # Round to nearest million (minimum 1M)
         position_size_millions = max(1.0, round(ideal_size_millions))
         
+        # Apply relaxed mode position reduction
+        if is_relaxed:
+            position_size_millions *= self.relaxed_position_multiplier
+            position_size_millions = max(1.0, round(position_size_millions))  # Still minimum 1M
+        
         # Convert back to units
         position_size = position_size_millions * self.min_lot_size
         
@@ -146,21 +172,24 @@ class Strategy_1:
             
         return position_size
     
-    def calculate_take_profits(self, entry_price: float, direction: str, atr: float) -> List[float]:
+    def calculate_take_profits(self, entry_price: float, direction: str, atr: float, is_relaxed: bool = False) -> List[float]:
         """Calculate three take profit levels based on ATR"""
         take_profits = []
         
+        # Apply relaxed mode multiplier to all TP distances
+        tp_multiplier = self.relaxed_tp_multiplier if is_relaxed else 1.0
+        
         # TP1: Closer target using first multiplier
-        tp1_distance = atr * self.tp_atr_multipliers[0]
-        tp1_distance = min(tp1_distance, entry_price * 0.003)  # Max 0.3% for TP1
+        tp1_distance = atr * self.tp_atr_multipliers[0] * tp_multiplier
+        tp1_distance = min(tp1_distance, entry_price * 0.003 * tp_multiplier)  # Max 0.3% for TP1 (0.15% in relaxed)
         
         # TP2: Medium distance using second multiplier
-        tp2_distance = atr * self.tp_atr_multipliers[1]
-        tp2_distance = min(tp2_distance, entry_price * 0.006)  # Max 0.6% for TP2
+        tp2_distance = atr * self.tp_atr_multipliers[1] * tp_multiplier
+        tp2_distance = min(tp2_distance, entry_price * 0.006 * tp_multiplier)  # Max 0.6% for TP2 (0.3% in relaxed)
         
-        # TP3: Maximum 1% from entry
-        tp3_distance = atr * self.tp_atr_multipliers[2]
-        tp3_distance = min(tp3_distance, entry_price * 0.01)  # Max 1% for TP3
+        # TP3: Maximum 1% from entry (0.5% in relaxed mode)
+        tp3_distance = atr * self.tp_atr_multipliers[2] * tp_multiplier
+        tp3_distance = min(tp3_distance, entry_price * 0.01 * tp_multiplier)  # Max 1% for TP3 (0.5% in relaxed)
         
         if direction == 'long':
             take_profits = [
@@ -211,7 +240,7 @@ class Strategy_1:
     def update_trailing_stop(self, current_price: float, trade: Trade, atr: float) -> float:
         """Update trailing stop loss - activates at 15 pips profit, locks in 5 pips minimum"""
         # Convert pip thresholds to price
-        activation_pips = self.tsl_activation_pips
+        activation_pips = self.relaxed_tsl_activation_pips if trade.is_relaxed else self.tsl_activation_pips
         min_profit_pips = self.tsl_min_profit_pips
         pip_size = 0.0001  # For AUDUSD
         
@@ -255,19 +284,31 @@ class Strategy_1:
         
         return trade.trailing_stop if trade.trailing_stop is not None else trade.stop_loss
     
-    def check_entry_conditions(self, row: pd.Series) -> Optional[str]:
-        """Check if entry conditions are met"""
-        # Long entry conditions
-        if (row['NTI_Direction'] == 1 and  # NeuroTrend uptrend
-            row['MB_Bias'] == 1 and  # Bullish Market Bias
-            row['IC_Regime'] in [1, 2]):  # Weak or Strong Trend
-            return 'long'
+    def check_entry_conditions(self, row: pd.Series) -> Optional[Tuple[str, bool]]:
+        """Check if entry conditions are met. Returns (direction, is_relaxed)"""
+        # Standard entry conditions (all three indicators must align)
+        if not self.relaxed_mode or (self.relaxed_mode and row['MB_Bias'] == row['NTI_Direction'] and row['IC_Regime'] in [1, 2]):
+            # Long entry conditions
+            if (row['NTI_Direction'] == 1 and  # NeuroTrend uptrend
+                row['MB_Bias'] == 1 and  # Bullish Market Bias
+                row['IC_Regime'] in [1, 2]):  # Weak or Strong Trend
+                return ('long', False)
+            
+            # Short entry conditions
+            elif (row['NTI_Direction'] == -1 and  # NeuroTrend downtrend
+                  row['MB_Bias'] == -1 and  # Bearish Market Bias
+                  row['IC_Regime'] in [1, 2]):  # Weak or Strong Trend
+                return ('short', False)
         
-        # Short entry conditions
-        elif (row['NTI_Direction'] == -1 and  # NeuroTrend downtrend
-              row['MB_Bias'] == -1 and  # Bearish Market Bias
-              row['IC_Regime'] in [1, 2]):  # Weak or Strong Trend
-            return 'short'
+        # Relaxed mode: Trade on NeuroTrend alone
+        if self.relaxed_mode:
+            # Relaxed long: Only NeuroTrend uptrend required
+            if row['NTI_Direction'] == 1:
+                return ('long', True)
+            
+            # Relaxed short: Only NeuroTrend downtrend required
+            elif row['NTI_Direction'] == -1:
+                return ('short', True)
         
         return None
     
@@ -295,13 +336,14 @@ class Strategy_1:
             exit_reason = 'trailing_stop' if trade.trailing_stop is not None else 'stop_loss'
             return True, exit_reason
         
-        # Check early exit on signal flip
-        if trade.direction == 'long':
-            if row['NTI_Direction'] == -1 or row['MB_Bias'] == -1:
-                return True, 'signal_flip'
-        else:  # short
-            if row['NTI_Direction'] == 1 or row['MB_Bias'] == 1:
-                return True, 'signal_flip'
+        # Check early exit on signal flip (if enabled)
+        if self.exit_on_signal_flip:
+            if trade.direction == 'long':
+                if row['NTI_Direction'] == -1 or row['MB_Bias'] == -1:
+                    return True, 'signal_flip'
+            else:  # short
+                if row['NTI_Direction'] == 1 or row['MB_Bias'] == 1:
+                    return True, 'signal_flip'
         
         return False, None
     
@@ -350,7 +392,7 @@ class Strategy_1:
             
             # Debug logging
             if self.verbose:
-                print(f"TP{trade.tp_hits} hit at {exit_time}: Exit {millions_exited:.1f}M at {exit_price:.5f}, P&L: ${partial_pnl:.2f}")
+                print(f"TP{trade.tp_hits} hit at {exit_time}: Exit {millions_exited:.1f}M at TP price {exit_price:.5f}, P&L: ${partial_pnl:.2f}")
             
             # If this is the third TP or no position left, close entire trade
             if trade.tp_hits >= 3 or trade.remaining_size <= 0:
@@ -432,7 +474,21 @@ class Strategy_1:
                 should_exit, exit_reason = self.check_exit_conditions(current_row, self.current_trade)
                 
                 if should_exit:
-                    exit_price = current_row['Close']
+                    # Determine exit price based on exit reason
+                    if 'take_profit' in exit_reason:
+                        # For TP exits, use the exact TP level price
+                        tp_index = int(exit_reason.split('_')[-1]) - 1
+                        exit_price = self.current_trade.take_profits[tp_index]
+                    elif exit_reason in ['stop_loss', 'trailing_stop']:
+                        # For stop loss exits, use the exact stop price
+                        if exit_reason == 'trailing_stop' and self.current_trade.trailing_stop is not None:
+                            exit_price = self.current_trade.trailing_stop
+                        else:
+                            exit_price = self.current_trade.stop_loss
+                    else:
+                        # For other exits (signal flip, end of data), use close price
+                        exit_price = current_row['Close']
+                    
                     completed_trade = self.execute_trade_exit(
                         self.current_trade, current_time, exit_price, exit_reason
                     )
@@ -445,19 +501,21 @@ class Strategy_1:
             
             # If no open trade, check entry conditions
             elif self.current_trade is None:
-                entry_signal = self.check_entry_conditions(current_row)
+                entry_result = self.check_entry_conditions(current_row)
                 
-                if entry_signal is not None:
+                if entry_result is not None:
+                    entry_signal, is_relaxed = entry_result
+                    
                     # Calculate trade parameters
                     entry_price = current_row['Close']
                     atr = current_row['IC_ATR_Normalized']
                     
                     # Calculate stop loss and position size
                     stop_loss = self.calculate_stop_loss(entry_price, entry_signal, atr, current_row)
-                    position_size = self.calculate_position_size(entry_price, stop_loss)
+                    position_size = self.calculate_position_size(entry_price, stop_loss, is_relaxed)
                     
                     # Calculate take profit levels
-                    take_profits = self.calculate_take_profits(entry_price, entry_signal, atr)
+                    take_profits = self.calculate_take_profits(entry_price, entry_signal, atr, is_relaxed)
                     
                     # Create new trade
                     self.current_trade = Trade(
@@ -466,8 +524,12 @@ class Strategy_1:
                         direction=entry_signal,
                         position_size=position_size,
                         stop_loss=stop_loss,
-                        take_profits=take_profits
+                        take_profits=take_profits,
+                        is_relaxed=is_relaxed
                     )
+                    
+                    if self.verbose and is_relaxed:
+                        print(f"RELAXED TRADE: {entry_signal} at {entry_price:.5f} with {position_size/self.min_lot_size:.1f}M")
         
         # Close any remaining open trade at the end
         if self.current_trade is not None:
@@ -1115,34 +1177,51 @@ def plot_neurotrend_market_bias_chop(df: pd.DataFrame,
     
     # === P&L SUBPLOT ===
     if show_pnl and trades and 'ax_pnl' in locals() and ax_pnl is not None:
-        # Calculate cumulative P&L
+        # Calculate cumulative P&L including partial exits
         cumulative_pnl = [0]  # Start at 0
         pnl_times = [0]  # Start at beginning
         
-        # Sort trades by exit time
-        sorted_trades = sorted([t for t in trades if hasattr(t, 'exit_time') or 'exit_time' in t], 
-                             key=lambda x: x.exit_time if hasattr(x, 'exit_time') else x['exit_time'])
+        # Collect all P&L events (partial and full exits)
+        pnl_events = []
         
-        for trade in sorted_trades:
-            # Get trade P&L
-            if hasattr(trade, 'pnl'):
-                trade_pnl = trade.pnl
-                exit_time = trade.exit_time
-            else:
-                trade_pnl = trade.get('pnl', 0)
-                exit_time = trade.get('exit_time')
+        for trade in trades:
+            # Add partial exits
+            if hasattr(trade, 'partial_exits') and trade.partial_exits:
+                for partial_exit in trade.partial_exits:
+                    pnl_events.append({
+                        'time': partial_exit['time'],
+                        'pnl': partial_exit['pnl'],
+                        'type': 'partial'
+                    })
             
-            if exit_time is not None and trade_pnl is not None:
-                # Find the index of this exit time
-                exit_idx = None
-                for i, timestamp in enumerate(df.index):
-                    if timestamp == exit_time:
-                        exit_idx = i
-                        break
+            # Add final exit (remaining position)
+            if hasattr(trade, 'exit_time') and trade.exit_time:
+                # Calculate remaining P&L (total P&L minus partial P&L already taken)
+                partial_pnl_sum = sum(pe['pnl'] for pe in trade.partial_exits) if hasattr(trade, 'partial_exits') and trade.partial_exits else 0
+                remaining_pnl = trade.pnl - partial_pnl_sum if hasattr(trade, 'pnl') else 0
                 
-                if exit_idx is not None:
-                    cumulative_pnl.append(cumulative_pnl[-1] + trade_pnl)
-                    pnl_times.append(exit_idx)
+                if remaining_pnl != 0:  # Only add if there's remaining P&L
+                    pnl_events.append({
+                        'time': trade.exit_time,
+                        'pnl': remaining_pnl,
+                        'type': 'final'
+                    })
+        
+        # Sort events by time
+        pnl_events.sort(key=lambda x: x['time'])
+        
+        # Build cumulative P&L
+        for event in pnl_events:
+            # Find the index of this event time
+            event_idx = None
+            for i, timestamp in enumerate(df.index):
+                if timestamp == event['time']:
+                    event_idx = i
+                    break
+            
+            if event_idx is not None:
+                cumulative_pnl.append(cumulative_pnl[-1] + event['pnl'])
+                pnl_times.append(event_idx)
         
         # Extend to end of chart
         if pnl_times[-1] < len(df) - 1:
@@ -1396,96 +1475,142 @@ df = pd.read_csv('../data/AUDUSD_MASTER_15M.csv')
 df['DateTime'] = pd.to_datetime(df['DateTime'])
 df.set_index('DateTime', inplace=True)
 
-# Use a longer timeframe for testing - 5000 rows (about 50 days of 15-minute data)
-sample_size = 50_000
+# Use a shorter timeframe for testing - 1000 rows (about 10 days of 15-minute data)
+sample_size = 5000
 max_start = len(df) - sample_size
-# Use a fixed seed for reproducibility
-np.random.seed(42)
-random_start = np.random.randint(0, max_start)
-df_analysis = df.iloc[random_start:random_start + sample_size].copy()
 
-print(f"Random sample starting from index {random_start} ({df.index[random_start]})")
+# Run 1 backtest to verify P&L tracking
+all_results = []
+print("Running 20 backtests with signal flip exits enabled...\n")
 
-
-# Calculate indicators
-print("Calculating NeuroTrend Intelligent...")
-df_analysis = TIC.add_neuro_trend_intelligent(
-    df_analysis,  
-    base_fast=10,
-    base_slow=50,
-    confirm_bars=3
-)   
-
-print("Calculating Market Bias...")
-df_analysis = df_analysis = TIC.add_market_bias(df_analysis, ha_len=300, ha_len2=30)  
-
-print("Calculating Intelligent Chop...")
-df_analysis = TIC.add_intelligent_chop(df_analysis)
+for run_num in range(30):
+    # Use different random seed for each run
+    # np.random.seed(42 + run_num)
+    random_start = np.random.randint(0, max_start)
+    df_analysis = df.iloc[random_start:random_start + sample_size].copy()
+    
+    print(f"\nRun {run_num + 1}: Sample from index {random_start} ({df.index[random_start]})")
+    
+    # Calculate indicators
+    print("  Calculating indicators...")
+    df_analysis = TIC.add_neuro_trend_intelligent(
+        df_analysis,  
+        base_fast=10,
+        base_slow=50,
+        confirm_bars=3
+    )   
+    df_analysis = TIC.add_market_bias(df_analysis, ha_len=350, ha_len2=30)  
+    df_analysis = TIC.add_intelligent_chop(df_analysis)
+    
+    # Run backtest
+    print("  Running backtest...")
+    strategy = Strategy_1(
+        initial_capital=100000,  # $100k for realistic 1M trades
+        risk_per_trade=0.02,
+        tp_atr_multipliers=(0.8, 1.5, 2.5),
+        sl_atr_multiplier=2.0,
+        trailing_atr_multiplier=1.2,
+        tsl_activation_pips=15,
+        tsl_min_profit_pips=5,
+        exit_on_signal_flip=True,  # Set to False to disable signal flip exits
+        relaxed_mode=False,  # Set to True to trade on NeuroTrend alone
+        relaxed_tp_multiplier=0.5,  # Tighter TPs in relaxed mode
+        relaxed_position_multiplier=0.5,  # Half position size in relaxed mode
+        relaxed_tsl_activation_pips=8,  # Faster TSL in relaxed mode
+        max_tp_percent=0.01,
+        min_lot_size=1000000,
+        pip_value_per_million=100,
+        verbose=False  # Disable for cleaner output
+    )
+    
+    results = strategy.run_backtest(df_analysis)
+    
+    # Store results summary
+    result_summary = {
+        'run': run_num + 1,
+        'start_date': df.index[random_start],
+        'total_trades': results['total_trades'],
+        'win_rate': results['win_rate'],
+        'total_pnl': results['total_pnl'],
+        'total_return': results['total_return'],
+        'profit_factor': results['profit_factor'],
+        'max_drawdown': results['max_drawdown'],
+        'sharpe_ratio': results['sharpe_ratio'],
+        'winning_trades': results['winning_trades'],
+        'losing_trades': results['losing_trades']
+    }
+    all_results.append(result_summary)
+    
+    # Print summary for this run
+    print(f"  Results: {results['total_trades']} trades, "
+          f"Win Rate: {results['win_rate']:.1f}%, "
+          f"P&L: ${results['total_pnl']:.2f}, "
+          f"Sharpe: {results['sharpe_ratio']:.2f}")
+    
+    # Keep the last run's data for plotting
+    if run_num == 19:  # Last run
+        final_df = df_analysis
+        final_results = results
  
 
 
 
-# Run backtest
-print("\nRunning Strategy_1 backtest...")
-strategy = Strategy_1(
-    initial_capital=100000,  # $100k for realistic 1M trades
-    risk_per_trade=0.02,
-    tp_atr_multipliers=(0.8, 1.5, 2.5),  # Staggered multipliers for TP1 (close), TP2 (medium), TP3 (far)
-    sl_atr_multiplier=2.0,
-    trailing_atr_multiplier=1.2,
-    max_tp_percent=0.01,  # Not used anymore as we have specific limits per TP
-    min_lot_size=1000000,  # 1M minimum
-    pip_value_per_million=100,  # $100 per pip per million
-    verbose=False  # Disable for cleaner output
-)
+# Print summary statistics for all runs
+print("\n" + "="*80)
+print("SUMMARY OF ALL 20 BACKTESTS")
+print("="*80)
 
-# Run the backtest
-results = strategy.run_backtest(df_analysis)
+# Convert to DataFrame for easy analysis
+results_df = pd.DataFrame(all_results)
 
-# Print performance metrics
-print("\n" + "="*60)
-print("BACKTEST RESULTS")
-print("="*60)
-print(f"Total Trades: {results['total_trades']}")
-print(f"Winning Trades: {results['winning_trades']}")
-print(f"Losing Trades: {results['losing_trades']}")
-print(f"Win Rate: {results['win_rate']:.2f}%")
-print(f"Total P&L: ${results['total_pnl']:.2f}")
-print(f"Total Return: {results['total_return']:.2f}%")
-print(f"Average Win: ${results['avg_win']:.2f}")
-print(f"Average Loss: ${results['avg_loss']:.2f}")
-print(f"Profit Factor: {results['profit_factor']:.2f}")
-print(f"Max Drawdown: {results['max_drawdown']:.2f}%")
-print(f"Sharpe Ratio: {results['sharpe_ratio']:.2f}")
-print(f"Final Capital: ${results['final_capital']:.2f}")
+# Calculate averages
+print("\nAverage Performance Metrics:")
+print(f"Average Total Trades: {results_df['total_trades'].mean():.1f}")
+print(f"Average Win Rate: {results_df['win_rate'].mean():.2f}%")
+print(f"Average P&L: ${results_df['total_pnl'].mean():.2f}")
+print(f"Average Return: {results_df['total_return'].mean():.2f}%")
+print(f"Average Profit Factor: {results_df['profit_factor'].mean():.2f}")
+print(f"Average Max Drawdown: {results_df['max_drawdown'].mean():.2f}%")
+print(f"Average Sharpe Ratio: {results_df['sharpe_ratio'].mean():.2f}")
+
+print("\nBest and Worst Runs:")
+best_pnl_run = results_df.loc[results_df['total_pnl'].idxmax()]
+worst_pnl_run = results_df.loc[results_df['total_pnl'].idxmin()]
+print(f"Best P&L: Run {best_pnl_run['run']} with ${best_pnl_run['total_pnl']:.2f}")
+print(f"Worst P&L: Run {worst_pnl_run['run']} with ${worst_pnl_run['total_pnl']:.2f}")
+
+print("\nDetailed Results Table:")
+print(results_df.to_string(index=False, float_format=lambda x: f'{x:.2f}'))
+
+# Print detailed results for the final run
+print("\n" + "="*80)
+print("DETAILED RESULTS FOR FINAL RUN (Run 20)")
+print("="*80)
+print(f"Total Trades: {final_results['total_trades']}")
+print(f"Winning Trades: {final_results['winning_trades']}")
+print(f"Losing Trades: {final_results['losing_trades']}")
+print(f"Win Rate: {final_results['win_rate']:.2f}%")
+print(f"Total P&L: ${final_results['total_pnl']:.2f}")
+print(f"Total Return: {final_results['total_return']:.2f}%")
+print(f"Average Win: ${final_results['avg_win']:.2f}")
+print(f"Average Loss: ${final_results['avg_loss']:.2f}")
+print(f"Profit Factor: {final_results['profit_factor']:.2f}")
+print(f"Max Drawdown: {final_results['max_drawdown']:.2f}%")
+print(f"Sharpe Ratio: {final_results['sharpe_ratio']:.2f}")
+print(f"Final Capital: ${final_results['final_capital']:.2f}")
 
 print("\nExit Reasons Breakdown:")
-for reason, count in results['exit_reasons'].items():
+for reason, count in final_results['exit_reasons'].items():
     print(f"  {reason}: {count}")
 
-# Print partial exits info
-print("\nPartial Exits Summary:")
-trades_with_partials = 0
-total_partials = 0
-for trade in results['trades']:
-    if trade.partial_exits:
-        trades_with_partials += 1
-        total_partials += len(trade.partial_exits)
-        print(f"Trade {trades_with_partials}: {len(trade.partial_exits)} partial exits")
-        for pe in trade.partial_exits:
-            print(f"  - TP{pe['tp_level']} at {pe['time']}: ${pe['pnl']:.2f}")
-
-print(f"\nTotal trades with partial exits: {trades_with_partials}")
-print(f"Total partial exits: {total_partials}")
-
-# Create the combined plot with trades
-print("\nCreating combined plot with trades...")
+# Create the combined plot with trades (only for the final run)
+print("\nCreating combined plot for final run...")
 
 fig = plot_neurotrend_market_bias_chop(
-    df_analysis,
-    title="Strategy_1 Backtest Results - AUDUSD 15M",
+    final_df,
+    title="Strategy_1 Backtest Results - AUDUSD 15M (Final Run)",
     figsize=(20, 16),  # Base size
-    save_path='charts/strategy1_backtest_results.png',
+    save_path='charts/strategy1_backtest_results_final.png',
     show=True,
     show_chop_subplots=False,
     use_chop_background=True,
@@ -1493,8 +1618,8 @@ fig = plot_neurotrend_market_bias_chop(
     simplified_regime_colors=True,
     trend_color='#2ECC71',  # Hex color
     range_color='#95A5A6',   # Hex color
-    trades=results['trades'],  # Pass the trades for visualization
-    performance_metrics=results  # Pass the performance metrics
+    trades=final_results['trades'],  # Pass the trades for visualization
+    performance_metrics=final_results  # Pass the performance metrics
 )
 
 print("\nBacktest complete!")
