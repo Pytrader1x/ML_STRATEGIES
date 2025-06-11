@@ -26,13 +26,13 @@ This repository contains institutional-grade quantitative trading strategies ach
 
 ```bash
 # Run Monte Carlo simulation for both strategies
-python robust_sharpe_both_configs_monte_carlo.py
+python monte_carlo_dual_strategy_test.py
 
 # Run with visualization
-python robust_sharpe_both_configs_monte_carlo.py --plot
+python monte_carlo_dual_strategy_test.py --plot
 
 # Save plots to files
-python robust_sharpe_both_configs_monte_carlo.py --save-plots
+python monte_carlo_dual_strategy_test.py --save-plots
 ```
 
 ## 📈 Calendar Year Performance (2010-2025)
@@ -92,7 +92,9 @@ pip install pandas numpy matplotlib seaborn
 
 ```
 Classical_strategies/
-├── robust_sharpe_both_configs_monte_carlo.py  # Main strategy with calendar year analysis
+├── monte_carlo_dual_strategy_test.py           # Main Monte Carlo testing with calendar year analysis
+├── multi_currency_monte_carlo.py               # Multi-currency testing across pairs
+├── crypto_strategy_final.py                    # Cryptocurrency strategy implementation
 ├── strategy_code/                              # Core strategy implementation
 │   ├── Prod_strategy.py                       # Strategy classes and configurations
 │   └── Prod_plotting.py                       # Visualization tools
@@ -171,6 +173,166 @@ Monitoring:
    - Crypto strategies tested 2015-2025
    - FX strategies tested 2010-2025
    - Cross-validation on multiple currency pairs
+
+## 📖 Detailed Strategy Explanation
+
+### Strategy Overview
+
+The trading strategies use three proprietary technical indicators to generate high-probability trading signals:
+
+1. **NTI (Neuro Trend Intelligent)**: An EMA-based trend direction indicator with confirmation requirements
+2. **MB (Market Bias)**: Heikin Ashi-based market structure analysis
+3. **IC (Intelligent Chop)**: ATR-based market regime classification (Trend/Range/Chop)
+
+### Entry Logic
+
+**Standard Entry (All 3 indicators must align):**
+- **LONG**: NTI_Direction = 1 AND MB_Bias = 1 AND IC_Regime in [1,2] (trending market)
+- **SHORT**: NTI_Direction = -1 AND MB_Bias = -1 AND IC_Regime in [1,2] (trending market)
+
+**Relaxed Entry (Config 1 only, when relaxed_mode=True):**
+- **LONG**: NTI_Direction = 1 (NTI signal alone)
+- **SHORT**: NTI_Direction = -1 (NTI signal alone)
+
+### Configuration 1: Ultra-Tight Risk Management
+
+**Purpose**: Maximize win rate with ultra-conservative risk per trade
+
+**Key Parameters:**
+```python
+# Risk Management
+initial_capital = 100,000
+risk_per_trade = 0.002  # 0.2% risk per trade
+
+# Stop Loss Settings
+sl_max_pips = 10.0  # Maximum 10 pip stop loss
+sl_atr_multiplier = 1.0  # 1x ATR for dynamic stops
+
+# Take Profit Levels (3 tiers)
+tp_atr_multipliers = (0.2, 0.3, 0.5)  # Very tight TPs
+max_tp_percent = 0.003  # Max 0.3% price move
+
+# Trailing Stop Logic
+tsl_activation_pips = 3  # Activates after 3 pips profit
+tsl_min_profit_pips = 1  # Guarantees 1 pip minimum
+tsl_initial_buffer_multiplier = 1.0
+
+# Market Adaptations
+tp_range_market_multiplier = 0.5  # 50% tighter in ranging
+tp_trend_market_multiplier = 0.7  # 30% tighter in trends
+tp_chop_market_multiplier = 0.3  # 70% tighter in chop
+
+# Exit Strategy
+exit_on_signal_flip = False  # Hold through minor reversals
+partial_profit_before_sl = True  # Take 50% at 50% to SL
+```
+
+**Trading Logic:**
+1. Enter when all 3 indicators align (or NTI alone in relaxed mode)
+2. Place ultra-tight stop loss (max 10 pips)
+3. Set 3 take profit levels at 0.2, 0.3, and 0.5 ATR
+4. Exit 1/3 position at each TP level
+5. Activate trailing stop after 3 pips profit
+6. Take partial profit (50%) when price reaches 50% of SL distance
+7. Hold remaining position until stop loss or final TP
+
+### Configuration 2: Scalping Strategy
+
+**Purpose**: High-frequency scalping with ultra-tight stops
+
+**Key Parameters:**
+```python
+# Risk Management
+initial_capital = 100,000
+risk_per_trade = 0.001  # 0.1% risk per trade (half of Config 1)
+
+# Stop Loss Settings
+sl_max_pips = 5.0  # Maximum 5 pip stop loss
+sl_atr_multiplier = 0.5  # 0.5x ATR for tighter stops
+
+# Take Profit Levels (3 tiers)
+tp_atr_multipliers = (0.1, 0.2, 0.3)  # Ultra-tight scalping TPs
+max_tp_percent = 0.002  # Max 0.2% price move
+
+# Trailing Stop Logic
+tsl_activation_pips = 2  # Activates after 2 pips profit
+tsl_min_profit_pips = 0.5  # Guarantees 0.5 pip minimum
+tsl_initial_buffer_multiplier = 0.5  # Tighter trailing
+
+# Market Adaptations
+tp_range_market_multiplier = 0.3  # 70% tighter in ranging
+tp_trend_market_multiplier = 0.5  # 50% tighter in trends
+tp_chop_market_multiplier = 0.2  # 80% tighter in chop
+
+# Exit Strategy
+exit_on_signal_flip = True  # Exit immediately on signal reversal
+signal_flip_min_profit_pips = 0.0  # No minimum profit required
+partial_profit_before_sl = True  # Take 70% at 30% to SL
+```
+
+**Trading Logic:**
+1. Enter when all 3 indicators align
+2. Place ultra-tight stop loss (max 5 pips)
+3. Set 3 scalping TP levels at 0.1, 0.2, and 0.3 ATR
+4. Exit 1/3 position at each TP level
+5. Activate trailing stop after 2 pips profit
+6. Take large partial profit (70%) when price reaches 30% of SL distance
+7. Exit immediately if signals flip (momentum reversal)
+
+### Key Strategy Features
+
+#### Dynamic Risk Adjustments
+- **Market Regime Adaptation**: Tighter TPs/SLs in choppy markets, wider in trends
+- **Volatility Adjustment**: Stop losses widen during high volatility periods
+- **ATR Normalization**: Prevents extreme stops during abnormal volatility
+
+#### Advanced Exit Management
+1. **Three-Tier Take Profit**: Scales out 1/3 at each TP level
+2. **TP1 Pullback Protection**: If 2 TPs hit and price pulls back to TP1, exit all
+3. **Partial Profit Taking**: Secures profits before stop loss is hit
+4. **Signal Flip Exit**: Config 2 exits on indicator reversal
+5. **Trailing Stop**: Dynamically adjusts to protect profits
+
+#### Position Sizing
+- Fixed 1 million units per trade (standard forex lot)
+- Intelligent sizing available but disabled by default
+- Capital-adjusted sizing prevents over-leverage
+
+### Monte Carlo Testing Files
+
+#### monte_carlo_dual_strategy_test.py
+- Tests both configurations on random 5,000-300,000 bar samples
+- Default: 10-50 iterations per configuration
+- Outputs detailed performance metrics and calendar year analysis
+- Saves results to CSV with iteration details
+
+#### multi_currency_monte_carlo.py
+- Tests both configurations across multiple currency pairs
+- Supported pairs: GBPUSD, EURUSD, USDJPY, NZDUSD, etc.
+- 30 iterations per currency pair
+- Identifies best currency-configuration combinations
+
+### Why These Strategies Work
+
+1. **Trend Alignment**: All 3 indicators must agree, filtering false signals
+2. **Quick Profits**: Ultra-tight TPs capture small moves consistently
+3. **Risk Control**: Maximum stop losses prevent large drawdowns
+4. **Market Adaptation**: Dynamic adjustments based on market conditions
+5. **Profit Protection**: Multiple exit mechanisms secure gains
+
+### Performance Characteristics
+
+**Config 1 (Ultra-Tight Risk):**
+- Higher win rate (69.5%) due to tight TPs
+- Larger position sizes (0.2% risk)
+- Better for psychological comfort
+- Holds positions longer
+
+**Config 2 (Scalping):**
+- Superior Sharpe ratio (1.437) 
+- Lower drawdowns (-2.7% max)
+- More trades (higher frequency)
+- Quick exits on reversals
 
 ## ⚠️ Risk Disclaimer
 
