@@ -227,6 +227,7 @@ class OptimizedStrategyConfig:
     trailing_atr_multiplier: float = 1.2
     tsl_activation_pips: float = 15  # TSL activates after 15 pips in profit
     tsl_min_profit_pips: float = 5   # Guarantees minimum 5 pip profit once TSL activated
+    tsl_initial_buffer_multiplier: float = 2.0  # Initial TSL buffer to prevent immediate exits
     
     # Dynamic SL adjustments
     sl_range_market_multiplier: float = 0.8  # Tighter stops in ranging markets
@@ -572,6 +573,13 @@ class OptimizedProdStrategy:
                           else self.config.tsl_activation_pips)
         min_profit_pips = self.config.tsl_min_profit_pips
         
+        # Fix for abnormal ATR values - normalize if needed
+        # If ATR seems unreasonably high (> 100 pips), assume it's not normalized
+        if atr > 0.01:  # More than 100 pips
+            # Assume ATR is in price terms, not normalized
+            # For FOREX, typical ATR might be 10-30 pips
+            atr = min(atr, 0.003)  # Cap at 30 pips max
+        
         # Calculate profit in pips
         if trade.direction == TradeDirection.LONG:
             profit_pips = (current_price - trade.entry_price) / FOREX_PIP_SIZE
@@ -580,8 +588,14 @@ class OptimizedProdStrategy:
                 # Ensure minimum profit
                 min_profit_stop = trade.entry_price + (min_profit_pips * FOREX_PIP_SIZE)
                 
-                # ATR-based trailing stop
-                atr_trailing_stop = current_price - (atr * self.config.trailing_atr_multiplier)
+                # ATR-based trailing stop with initial buffer
+                # When TSL first activates, use a larger multiplier to prevent immediate exits
+                if trade.trailing_stop is None:
+                    # First activation - use larger buffer
+                    atr_trailing_stop = current_price - (atr * self.config.trailing_atr_multiplier * self.config.tsl_initial_buffer_multiplier)
+                else:
+                    # Subsequent updates - use normal multiplier
+                    atr_trailing_stop = current_price - (atr * self.config.trailing_atr_multiplier)
                 
                 # Use the higher (more conservative)
                 new_trailing_stop = max(min_profit_stop, atr_trailing_stop)
@@ -596,8 +610,14 @@ class OptimizedProdStrategy:
                 # Ensure minimum profit
                 min_profit_stop = trade.entry_price - (min_profit_pips * FOREX_PIP_SIZE)
                 
-                # ATR-based trailing stop
-                atr_trailing_stop = current_price + (atr * self.config.trailing_atr_multiplier)
+                # ATR-based trailing stop with initial buffer
+                # When TSL first activates, use a larger multiplier to prevent immediate exits
+                if trade.trailing_stop is None:
+                    # First activation - use larger buffer
+                    atr_trailing_stop = current_price + (atr * self.config.trailing_atr_multiplier * self.config.tsl_initial_buffer_multiplier)
+                else:
+                    # Subsequent updates - use normal multiplier
+                    atr_trailing_stop = current_price + (atr * self.config.trailing_atr_multiplier)
                 
                 # Use the lower (more conservative)
                 new_trailing_stop = min(min_profit_stop, atr_trailing_stop)
