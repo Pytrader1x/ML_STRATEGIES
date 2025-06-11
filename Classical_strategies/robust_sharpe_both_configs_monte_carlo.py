@@ -235,7 +235,7 @@ def run_monte_carlo_test_both_configs(n_iterations=20, sample_size=5000):
         print(f"  Profitable:       {profitable}/{n_iterations} ({profitable/n_iterations*100:.1f}%)")
         
         # Save results to CSV
-        csv_filename = f'monte_carlo_results_{config_name.replace(":", "").replace(" ", "_").lower()}.csv'
+        csv_filename = f'results/monte_carlo_results_{config_name.replace(":", "").replace(" ", "_").lower()}.csv'
         results_df.to_csv(csv_filename, index=False)
         print(f"\nDetailed results saved to {csv_filename}")
     
