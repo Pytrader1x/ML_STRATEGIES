@@ -116,7 +116,7 @@ def create_config_2_scalping():
     return OptimizedProdStrategy(config)
 
 
-def run_monte_carlo_test_both_configs(n_iterations=20, sample_size=5000):
+def run_monte_carlo_test_both_configs(n_iterations=50, sample_size=5000):
     """
     Run Monte Carlo testing on both strategy configurations
     
@@ -195,14 +195,18 @@ def run_monte_carlo_test_both_configs(n_iterations=20, sample_size=5000):
             
             iteration_results.append(iteration_data)
             
-            # Print iteration results
+            # Print iteration results with date range and duration
+            start_date_str = sample_df.index[0].strftime('%m/%d/%Y')
+            end_date_str = sample_df.index[-1].strftime('%m/%d/%Y')
+            duration_days = (sample_df.index[-1] - sample_df.index[0]).days
             print(f"Iteration {i+1:2d}: "
                   f"Sharpe={results['sharpe_ratio']:6.3f} | "
                   f"P&L=${results['total_pnl']:8,.0f} | "
                   f"WinRate={results['win_rate']:5.1f}% | "
                   f"Trades={results['total_trades']:3d} | "
                   f"DD={results['max_drawdown']:5.1f}% | "
-                  f"PF={results['profit_factor']:4.2f}")
+                  f"PF={results['profit_factor']:4.2f} | "
+                  f"{start_date_str} to {end_date_str} ({duration_days} days, {len(sample_df):,} rows)")
         
         print("-" * 80)
         
@@ -265,12 +269,12 @@ def run_monte_carlo_test_both_configs(n_iterations=20, sample_size=5000):
     
     best_config = "Config 1" if config1_df['sharpe_ratio'].mean() > config2_df['sharpe_ratio'].mean() else "Config 2"
     print(f"\n✅ {best_config} shows superior performance based on average Sharpe ratio.")
-    print(f"\nBoth configurations demonstrate robust performance with high Sharpe ratios.")
-    print(f"Monte Carlo testing complete!")
+    print("\nBoth configurations demonstrate robust performance with high Sharpe ratios.")
+    print("Monte Carlo testing complete!")
     
     return all_results
 
 
 if __name__ == "__main__":
     # Run Monte Carlo test for both configurations
-    results = run_monte_carlo_test_both_configs(n_iterations=20, sample_size=5000)
+    results = run_monte_carlo_test_both_configs(n_iterations=50, sample_size=8000)
