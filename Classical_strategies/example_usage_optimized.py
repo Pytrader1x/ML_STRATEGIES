@@ -6,9 +6,8 @@ Includes Monte Carlo analysis on random samples
 
 import pandas as pd
 import numpy as np
-from Prod_strategy import create_strategy
-from Prod_strategy_optimized import create_optimized_strategy
-from Prod_plotting import plot_production_results
+from strategy_code.Prod_strategy import create_optimized_strategy
+from strategy_code.Prod_plotting import plot_production_results
 from technical_indicators_custom import TIC
 import time
 from datetime import timedelta
@@ -17,9 +16,9 @@ import sys
 import argparse
 
 def run_comparison_backtest():
-    """Run both original and optimized strategies for comparison"""
+    """Run optimized strategy with different configurations for comparison"""
     
-    print("Production Strategy Comparison - Original vs Optimized")
+    print("Production Strategy Comparison - Base vs Full Optimization")
     print("=" * 80)
     
     # Load data
@@ -50,15 +49,19 @@ def run_comparison_backtest():
     indicator_time = time.time() - start_time
     print(f"Indicators calculated in {indicator_time:.2f}s")
     
-    # Run original strategy
+    # Run base configuration (minimal optimizations)
     print("\n" + "=" * 60)
-    print("RUNNING ORIGINAL STRATEGY")
+    print("RUNNING BASE CONFIGURATION")
     print("=" * 60)
     
-    strategy_original = create_strategy(
+    strategy_original = create_optimized_strategy(
         initial_capital=100_000,
         risk_per_trade=0.02,
         exit_on_signal_flip=True,
+        signal_flip_min_profit_pips=0,  # No filter
+        signal_flip_min_time_hours=0,   # No filter
+        partial_profit_before_sl=False,
+        sl_volatility_adjustment=False,
         intelligent_sizing=True,
         relaxed_mode=False,
         verbose=False
@@ -69,7 +72,7 @@ def run_comparison_backtest():
     original_time = time.time() - start_time
     
     print(f"Execution time: {original_time:.2f}s")
-    print_results_summary("Original Strategy", results_original)
+    print_results_summary("Base Configuration", results_original)
     
     # Run optimized strategy
     print("\n" + "=" * 60)
@@ -137,7 +140,7 @@ def run_comparison_backtest():
     opt_flip_pnl = sum(t.pnl for t in results_optimized['trades'] 
                       if t.exit_reason and t.exit_reason.value == 'signal_flip')
     
-    print(f"  Original: {orig_flips} flips, P&L: ${orig_flip_pnl:,.2f}")
+    print(f"  Base Config: {orig_flips} flips, P&L: ${orig_flip_pnl:,.2f}")
     print(f"  Optimized: {opt_flips} flips, P&L: ${opt_flip_pnl:,.2f}")
     print(f"  Improvement: ${opt_flip_pnl - orig_flip_pnl:,.2f}")
     
@@ -244,7 +247,6 @@ def run_monte_carlo_analysis():
     print(f"\nRunning {n_runs} backtests on random {sample_size}-bar samples...")
     
     # Store results
-    original_results = []
     optimized_results = []
     final_df = None
     
@@ -267,19 +269,6 @@ def run_monte_carlo_analysis():
         df_sample = TIC.add_intelligent_chop(df_sample)
         df_sample['IC_ATR_MA'] = df_sample['IC_ATR_Normalized'].rolling(20).mean()
         df_sample['NTI_Strength'] = abs(df_sample['NTI_Direction'].rolling(5).mean())
-        
-        # Run original strategy
-        strategy_orig = create_strategy(
-            initial_capital=100_000,
-            risk_per_trade=0.02,
-            exit_on_signal_flip=True,
-            intelligent_sizing=True,
-            verbose=False
-        )
-        results_orig = strategy_orig.run_backtest(df_sample)
-        results_orig['start_date'] = df_sample.index[0]
-        results_orig['end_date'] = df_sample.index[-1]
-        original_results.append(results_orig)
         
         # Run optimized strategy
         strategy_opt = create_optimized_strategy(
@@ -307,62 +296,39 @@ def run_monte_carlo_analysis():
     
     print(f"\n\nCompleted {n_runs} runs successfully")
     
-    # Display comparison table
-    print("\n" + "="*140)
-    print("MONTE CARLO RESULTS COMPARISON")
-    print("="*140)
-    print(f"{'Run':<4} {'Period':<35} {'Orig P&L':<12} {'Opt P&L':<12} {'Improvement':<12} {'Win%':<6} {'Sharpe':<7} {'DD%':<7}")
-    print("-"*140)
+    # Display results table
+    print("\n" + "="*100)
+    print("MONTE CARLO RESULTS")
+    print("="*100)
+    print(f"{'Run':<4} {'Period':<35} {'P&L':<12} {'Win%':<6} {'Sharpe':<7} {'DD%':<7}")
+    print("-"*100)
     
     for i in range(n_runs):
-        orig = original_results[i]
         opt = optimized_results[i]
-        period = f"{orig['start_date'].strftime('%Y-%m-%d')} to {orig['end_date'].strftime('%Y-%m-%d')}"
-        improvement = opt['total_pnl'] - orig['total_pnl']
+        period = f"{opt['start_date'].strftime('%Y-%m-%d')} to {opt['end_date'].strftime('%Y-%m-%d')}"
         
-        print(f"{i+1:<4} {period:<35} ${orig['total_pnl']:<11,.0f} ${opt['total_pnl']:<11,.0f} "
-              f"${improvement:<11,.0f} {opt['win_rate']:<5.1f} {opt['sharpe_ratio']:<6.2f} {opt['max_drawdown']:<6.1f}")
+        print(f"{i+1:<4} {period:<35} ${opt['total_pnl']:<11,.0f} "
+              f"{opt['win_rate']:<5.1f} {opt['sharpe_ratio']:<6.2f} {opt['max_drawdown']:<6.1f}")
     
     # Calculate averages
-    avg_orig_pnl = np.mean([r['total_pnl'] for r in original_results])
-    avg_opt_pnl = np.mean([r['total_pnl'] for r in optimized_results])
-    avg_orig_wr = np.mean([r['win_rate'] for r in original_results])
-    avg_opt_wr = np.mean([r['win_rate'] for r in optimized_results])
-    avg_orig_sharpe = np.mean([r['sharpe_ratio'] for r in original_results])
-    avg_opt_sharpe = np.mean([r['sharpe_ratio'] for r in optimized_results])
-    avg_orig_dd = np.mean([r['max_drawdown'] for r in original_results])
-    avg_opt_dd = np.mean([r['max_drawdown'] for r in optimized_results])
-    avg_improvement = avg_opt_pnl - avg_orig_pnl
-    avg_improvement_pct = (avg_improvement / abs(avg_orig_pnl)) * 100 if avg_orig_pnl != 0 else 0
+    avg_pnl = np.mean([r['total_pnl'] for r in optimized_results])
+    avg_wr = np.mean([r['win_rate'] for r in optimized_results])
+    avg_sharpe = np.mean([r['sharpe_ratio'] for r in optimized_results])
+    avg_dd = np.mean([r['max_drawdown'] for r in optimized_results])
     
     print("\n" + "="*80)
     print("AVERAGE PERFORMANCE")
     print("="*80)
-    print(f"Original Strategy:")
-    print(f"  Average P&L: ${avg_orig_pnl:,.2f}")
-    print(f"  Average Win Rate: {avg_orig_wr:.1f}%")
-    print(f"  Average Sharpe: {avg_orig_sharpe:.2f}")
-    print(f"  Average Max Drawdown: {avg_orig_dd:.2f}%")
-    
-    print(f"\nOptimized Strategy:")
-    print(f"  Average P&L: ${avg_opt_pnl:,.2f}")
-    print(f"  Average Win Rate: {avg_opt_wr:.1f}%")
-    print(f"  Average Sharpe: {avg_opt_sharpe:.2f}")
-    print(f"  Average Max Drawdown: {avg_opt_dd:.2f}%")
-    
-    print(f"\nImprovement:")
-    print(f"  Average P&L Improvement: ${avg_improvement:,.2f} ({avg_improvement_pct:+.1f}%)")
-    print(f"  Win Rate Improvement: {avg_opt_wr - avg_orig_wr:+.1f}%")
-    print(f"  Sharpe Improvement: {avg_opt_sharpe - avg_orig_sharpe:+.2f}")
-    print(f"  Drawdown Improvement: {avg_opt_dd - avg_orig_dd:+.2f}% (lower is better)")
+    print(f"Optimized Strategy Results:")
+    print(f"  Average P&L: ${avg_pnl:,.2f}")
+    print(f"  Average Win Rate: {avg_wr:.1f}%")
+    print(f"  Average Sharpe: {avg_sharpe:.2f}")
+    print(f"  Average Max Drawdown: {avg_dd:.2f}%")
     
     # Count profitable runs
-    orig_profitable = sum(1 for r in original_results if r['total_pnl'] > 0)
-    opt_profitable = sum(1 for r in optimized_results if r['total_pnl'] > 0)
+    profitable = sum(1 for r in optimized_results if r['total_pnl'] > 0)
     
-    print(f"\nProfitable Runs:")
-    print(f"  Original: {orig_profitable}/{n_runs} ({orig_profitable/n_runs*100:.1f}%)")
-    print(f"  Optimized: {opt_profitable}/{n_runs} ({opt_profitable/n_runs*100:.1f}%)")
+    print(f"\nProfitable Runs: {profitable}/{n_runs} ({profitable/n_runs*100:.1f}%)")
     
     # Plot the final run
     print("\n" + "="*80)
@@ -371,10 +337,10 @@ def run_monte_carlo_analysis():
     
     title = (f"Optimized Strategy - Monte Carlo Analysis (Final Run)\n"
              f"Average of {n_runs} runs: "
-             f"Win Rate {avg_opt_wr:.1f}% | "
-             f"Sharpe {avg_opt_sharpe:.2f} | "
-             f"Drawdown {avg_opt_dd:.1f}% | "
-             f"P&L ${avg_opt_pnl:,.0f}")
+             f"Win Rate {avg_wr:.1f}% | "
+             f"Sharpe {avg_sharpe:.2f} | "
+             f"Drawdown {avg_dd:.1f}% | "
+             f"P&L ${avg_pnl:,.0f}")
     
     plot_production_results(
         df=final_df,

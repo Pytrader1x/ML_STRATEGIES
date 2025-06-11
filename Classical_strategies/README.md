@@ -104,14 +104,17 @@ python example_usage_optimized.py --years 5
 
 ```
 Classical_strategies/
-├── Prod_strategy.py           # Core strategy implementation
-├── Prod_strategy_optimized.py # Enhanced version with improvements
-├── Prod_plotting.py           # Advanced visualization with data stats
-├── example_usage_optimized.py # Main entry point
-└── analysis/                  # Analysis and testing scripts
-    ├── analyze_exits.py       # Exit reason analysis
-    ├── test_tsl_behavior.py   # TSL verification
-    └── test_max_sl.py         # Stop loss testing
+├── strategy_code/
+│   ├── __init__.py            # Package initialization
+│   ├── Prod_strategy.py       # Optimized strategy implementation
+│   └── Prod_plotting.py       # Advanced visualization
+├── analysis/                  # Analysis and testing scripts
+│   ├── analyze_exits.py       # Exit reason analysis
+│   ├── test_tsl_behavior.py   # TSL verification
+│   └── test_max_sl.py         # Stop loss testing
+├── Classical_strat.ipynb      # Interactive Jupyter notebook
+├── example_usage_optimized.py # Command-line interface
+└── charts/                    # Output visualizations
 ```
 
 ## 🔧 Configuration
@@ -154,7 +157,7 @@ Exit Reasons (5-year backtest):
 
 ### Custom Configuration
 ```python
-from Prod_strategy_optimized import create_optimized_strategy
+from strategy_code.Prod_strategy import create_optimized_strategy
 
 strategy = create_optimized_strategy(
     initial_capital=100_000,

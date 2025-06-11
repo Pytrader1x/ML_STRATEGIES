@@ -6,7 +6,7 @@ import pandas as pd
 import numpy as np
 import sys
 sys.path.append('..')
-from Prod_strategy_optimized import create_optimized_strategy
+from strategy_code.Prod_strategy import create_optimized_strategy
 from technical_indicators_custom import TIC
 
 def test_max_sl():

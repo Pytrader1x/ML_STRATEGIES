@@ -21,16 +21,183 @@ from enum import Enum
 from datetime import datetime, timedelta
 import logging
 
-# Import base classes from original
-from Prod_strategy import (
-    TradeDirection, ExitReason, ConfidenceLevel, Trade, PartialExit,
-    FOREX_PIP_SIZE, MIN_LOT_SIZE, PIP_VALUE_PER_MILLION,
-    RiskManager, PnLCalculator
-)
-
 # Configure logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
+
+
+# ============================================================================
+# Enums and Constants
+# ============================================================================
+
+class TradeDirection(Enum):
+    """Trade direction enumeration"""
+    LONG = "long"
+    SHORT = "short"
+
+
+class ExitReason(Enum):
+    """Exit reason enumeration"""
+    TAKE_PROFIT_1 = "take_profit_1"
+    TAKE_PROFIT_2 = "take_profit_2"
+    TAKE_PROFIT_3 = "take_profit_3"
+    TP1_PULLBACK = "tp1_pullback"
+    STOP_LOSS = "stop_loss"
+    TRAILING_STOP = "trailing_stop"
+    SIGNAL_FLIP = "signal_flip"
+    END_OF_DATA = "end_of_data"
+
+
+class ConfidenceLevel(Enum):
+    """Confidence level enumeration"""
+    VERY_LOW = "very_low"
+    LOW = "low"
+    MEDIUM = "medium"
+    HIGH = "high"
+
+
+# Trading constants
+FOREX_PIP_SIZE = 0.0001
+MIN_LOT_SIZE = 1_000_000  # 1M units
+PIP_VALUE_PER_MILLION = 100  # $100 per pip per million
+
+
+# ============================================================================
+# Data Classes
+# ============================================================================
+
+@dataclass
+class PartialExit:
+    """Represents a partial exit from a trade"""
+    time: pd.Timestamp
+    price: float
+    size: float
+    tp_level: int
+    pnl: float
+
+
+@dataclass
+class Trade:
+    """Comprehensive trade information"""
+    entry_time: pd.Timestamp
+    entry_price: float
+    direction: TradeDirection
+    position_size: float
+    stop_loss: float
+    take_profits: List[float]
+    is_relaxed: bool = False
+    confidence: float = 50.0
+    exit_time: Optional[pd.Timestamp] = None
+    exit_price: Optional[float] = None
+    exit_reason: Optional[ExitReason] = None
+    pnl: Optional[float] = None
+    pnl_percent: Optional[float] = None
+    trailing_stop: Optional[float] = None
+    tp_hits: int = 0
+    remaining_size: float = None
+    partial_pnl: float = 0.0
+    tp_exit_times: List[pd.Timestamp] = field(default_factory=list)
+    tp_exit_prices: List[float] = field(default_factory=list)
+    partial_exits: List[PartialExit] = field(default_factory=list)
+    
+    def __post_init__(self):
+        """Initialize remaining size if not provided"""
+        if self.remaining_size is None:
+            self.remaining_size = self.position_size
+        # Convert string direction to enum if needed
+        if isinstance(self.direction, str):
+            self.direction = TradeDirection(self.direction)
+
+
+# ============================================================================
+# Base Strategy Components
+# ============================================================================
+
+class RiskManager:
+    """Handles position sizing and risk calculations"""
+    
+    def __init__(self, config):
+        self.config = config
+    
+    def get_confidence_level(self, confidence: float) -> ConfidenceLevel:
+        """Determine confidence level from numeric confidence"""
+        if confidence < self.config.confidence_thresholds[0]:
+            return ConfidenceLevel.VERY_LOW
+        elif confidence < self.config.confidence_thresholds[1]:
+            return ConfidenceLevel.LOW
+        elif confidence < self.config.confidence_thresholds[2]:
+            return ConfidenceLevel.MEDIUM
+        else:
+            return ConfidenceLevel.HIGH
+    
+    def get_position_size_multiplier(self, confidence: float) -> Tuple[float, float]:
+        """Get position size and TP multipliers based on confidence"""
+        if not self.config.intelligent_sizing:
+            return 1.0, 1.0
+        
+        level = self.get_confidence_level(confidence)
+        
+        multiplier_map = {
+            ConfidenceLevel.VERY_LOW: (self.config.size_multipliers[0], 0.7),
+            ConfidenceLevel.LOW: (self.config.size_multipliers[1], 0.85),
+            ConfidenceLevel.MEDIUM: (self.config.size_multipliers[2], 1.0),
+            ConfidenceLevel.HIGH: (self.config.size_multipliers[3], 1.0)
+        }
+        
+        size_mult, tp_mult = multiplier_map[level]
+        
+        if not self.config.tp_confidence_adjustment:
+            tp_mult = 1.0
+            
+        return size_mult, tp_mult
+    
+    def calculate_position_size(self, entry_price: float, stop_loss: float, 
+                              current_capital: float, is_relaxed: bool = False,
+                              confidence: float = 50.0) -> float:
+        """Calculate position size based on risk management rules"""
+        # Default position size is 1M
+        position_size_millions = 1.0
+        
+        # Apply intelligent sizing based on confidence
+        if self.config.intelligent_sizing:
+            size_millions, _ = self.get_position_size_multiplier(confidence)
+            position_size_millions = size_millions
+        
+        # Apply relaxed mode position reduction
+        if is_relaxed:
+            position_size_millions *= self.config.relaxed_position_multiplier
+            position_size_millions = max(1.0, round(position_size_millions))
+        
+        # Convert to units
+        position_size = position_size_millions * self.config.min_lot_size
+        
+        # Check capital constraints
+        required_margin = position_size * 0.01  # 1% margin requirement
+        if required_margin > current_capital:
+            affordable_millions = int(current_capital / (self.config.min_lot_size * 0.01))
+            position_size = max(self.config.min_lot_size, affordable_millions * self.config.min_lot_size)
+        
+        return position_size
+
+
+class PnLCalculator:
+    """Handles P&L calculations"""
+    
+    def __init__(self, config):
+        self.config = config
+    
+    def calculate_pnl(self, entry_price: float, exit_price: float,
+                     position_size: float, direction: TradeDirection) -> Tuple[float, float]:
+        """Calculate P&L for a position"""
+        if direction == TradeDirection.LONG:
+            price_change_pips = (exit_price - entry_price) * 10000
+        else:
+            price_change_pips = (entry_price - exit_price) * 10000
+        
+        millions = position_size / self.config.min_lot_size
+        pnl = millions * self.config.pip_value_per_million * price_change_pips
+        
+        return pnl, price_change_pips
 
 
 # ============================================================================
@@ -398,6 +565,49 @@ class OptimizedProdStrategy:
         self.equity_curve = [self.config.initial_capital]
         self.partial_profit_taken = {}  # Track partial profits per trade
     
+    def _update_trailing_stop(self, current_price: float, trade: Trade,
+                              atr: float) -> Optional[float]:
+        """Update trailing stop loss with pip-based activation"""
+        activation_pips = (self.config.relaxed_tsl_activation_pips if trade.is_relaxed 
+                          else self.config.tsl_activation_pips)
+        min_profit_pips = self.config.tsl_min_profit_pips
+        
+        # Calculate profit in pips
+        if trade.direction == TradeDirection.LONG:
+            profit_pips = (current_price - trade.entry_price) / FOREX_PIP_SIZE
+            
+            if profit_pips >= activation_pips:
+                # Ensure minimum profit
+                min_profit_stop = trade.entry_price + (min_profit_pips * FOREX_PIP_SIZE)
+                
+                # ATR-based trailing stop
+                atr_trailing_stop = current_price - (atr * self.config.trailing_atr_multiplier)
+                
+                # Use the higher (more conservative)
+                new_trailing_stop = max(min_profit_stop, atr_trailing_stop)
+                
+                # Only update if higher than current
+                if trade.trailing_stop is None or new_trailing_stop > trade.trailing_stop:
+                    return new_trailing_stop
+        else:
+            profit_pips = (trade.entry_price - current_price) / FOREX_PIP_SIZE
+            
+            if profit_pips >= activation_pips:
+                # Ensure minimum profit
+                min_profit_stop = trade.entry_price - (min_profit_pips * FOREX_PIP_SIZE)
+                
+                # ATR-based trailing stop
+                atr_trailing_stop = current_price + (atr * self.config.trailing_atr_multiplier)
+                
+                # Use the lower (more conservative)
+                new_trailing_stop = min(min_profit_stop, atr_trailing_stop)
+                
+                # Only update if lower than current
+                if trade.trailing_stop is None or new_trailing_stop < trade.trailing_stop:
+                    return new_trailing_stop
+        
+        return trade.trailing_stop
+    
     def _execute_partial_exit(self, trade: Trade, exit_time: pd.Timestamp,
                              exit_price: float, exit_percent: float, 
                              exit_reason: Optional[ExitReason] = None) -> Optional[Trade]:
@@ -519,12 +729,12 @@ class OptimizedProdStrategy:
                             continue
                 
                 # Update trailing stop
-                from Prod_strategy import StopLossCalculator
-                base_sl_calc = StopLossCalculator(self.config)
                 atr = current_row['IC_ATR_Normalized']
-                new_trailing_stop = base_sl_calc.update_trailing_stop(
+                new_trailing_stop = self._update_trailing_stop(
                     current_row['Close'], self.current_trade, atr
                 )
+                if new_trailing_stop is not None:
+                    self.current_trade.trailing_stop = new_trailing_stop
                 if new_trailing_stop is not None:
                     self.current_trade.trailing_stop = new_trailing_stop
                 

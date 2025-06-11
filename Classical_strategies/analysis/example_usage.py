@@ -5,7 +5,9 @@ Demonstrates the strategy on multiple random samples from the dataset
 
 import pandas as pd
 import numpy as np
-from Prod_strategy import create_strategy
+import sys
+sys.path.append('..')
+from strategy_code.Prod_strategy import create_strategy
 from Prod_plotting import plot_production_results
 from technical_indicators_custom import TIC
 import time

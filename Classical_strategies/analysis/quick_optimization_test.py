@@ -5,8 +5,10 @@ Focus on signal flip fixes which provide the biggest impact
 
 import pandas as pd
 import numpy as np
-from Prod_strategy import create_strategy
-from Prod_strategy_optimized import create_optimized_strategy
+import sys
+sys.path.append('..')
+from strategy_code.Prod_strategy import create_strategy
+from strategy_code.Prod_strategy_optimized import create_optimized_strategy
 from technical_indicators_custom import TIC
 import time
 

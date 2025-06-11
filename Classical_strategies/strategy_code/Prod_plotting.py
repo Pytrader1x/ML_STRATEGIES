@@ -18,7 +18,7 @@ from pathlib import Path
 import warnings
 warnings.filterwarnings('ignore')
 
-from Prod_strategy import Trade, TradeDirection, ExitReason
+from .Prod_strategy import Trade, TradeDirection, ExitReason
 
 
 # ============================================================================

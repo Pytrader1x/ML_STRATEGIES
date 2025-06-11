@@ -5,7 +5,9 @@ No plotting, just results display
 
 import pandas as pd
 import numpy as np
-from Prod_strategy import create_strategy
+import sys
+sys.path.append('..')
+from strategy_code.Prod_strategy import create_strategy
 from technical_indicators_custom import TIC
 import time
 from datetime import datetime, timedelta
