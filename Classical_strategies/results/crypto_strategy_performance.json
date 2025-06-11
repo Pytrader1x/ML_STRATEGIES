@@ -1,0 +1,18 @@
+{
+  "Conservative": {
+    "avg_sharpe": -0.26939624579048704,
+    "avg_return": -0.08787544066958436,
+    "avg_win_rate": 64.95704281867552,
+    "avg_drawdown": -0.40158303500280645,
+    "avg_trades": 61.55,
+    "sharpe_above_1": 25.0
+  },
+  "Aggressive": {
+    "avg_sharpe": -1.3988156446008317,
+    "avg_return": -0.3900607023464872,
+    "avg_win_rate": 60.924725291044886,
+    "avg_drawdown": -0.7224641305390109,
+    "avg_trades": 65.0,
+    "sharpe_above_1": 20.0
+  }
+}

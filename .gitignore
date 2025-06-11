@@ -47,6 +47,10 @@ data/*_MASTER.csv
 # Include filtered 1M data from 2024 onwards
 !data/git_data/*.csv
 
+# Crypto data files
+crypto_data/*_1.csv
+crypto_data/*.zip
+
 # Model files
 *.h5
 *.pkl

@@ -82,7 +82,7 @@ def create_config_2_scalping():
     return OptimizedProdStrategy(config)
 
 
-def run_currency_test(currency_pair, n_iterations=10, sample_size=5000):
+def run_currency_test(currency_pair, n_iterations=30, sample_size=5000):
     """
     Run Monte Carlo test for a specific currency pair
     
@@ -196,10 +196,10 @@ def main():
     print("="*80)
     
     # Currency pairs to test
-    currency_pairs = ['GBPUSD', 'EURUSD', 'USDJPY', 'NZDUSD']
+    currency_pairs = ['GBPUSD', 'EURUSD', 'USDJPY', 'NZDUSD', 'USDCAD']
     
     # Parameters
-    n_iterations = 20  # More iterations for better statistics
+    n_iterations = 30  # 30 iterations for robust statistics
     sample_size = 5000
     
     # Store all results
