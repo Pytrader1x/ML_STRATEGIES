@@ -21,8 +21,8 @@ pairs = [
 # Data directory - current directory since script is in data/
 data_dir = '.'
 
-# Start year
-start_year = 2018
+# Start year - changed to 2010 for more historical data
+start_year = 2010
 
 print(f"Starting FX data download at {datetime.now()}")
 print(f"Downloading data from {start_year} to present for {len(pairs)} currency pairs")
