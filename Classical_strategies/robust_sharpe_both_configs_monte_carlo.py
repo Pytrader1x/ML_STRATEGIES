@@ -496,8 +496,8 @@ if __name__ == "__main__":
     
     # Run Monte Carlo test for both configurations
     results = run_monte_carlo_test_both_configs(
-        n_iterations=50, 
-        sample_size=60_000,  # 20k rows for more robust testing
+        n_iterations=10, 
+        sample_size=300_000,  # 20k rows for more robust testing
         plot_last=plot_last,
         save_plots=save_plots
     )
