@@ -1,0 +1,150 @@
+{
+  "Conservative Trend": {
+    "2017-2018 First Bull": {
+      "total_trades": 560,
+      "win_rate": 58.75,
+      "sharpe_ratio": 3.934915070950752,
+      "max_drawdown": -1.5945995441824186,
+      "total_return_pct": 18.937838088353352,
+      "profit_factor": 1.404930648829931,
+      "avg_win": 3.893910927825606,
+      "avg_loss": -3.9561527463583057,
+      "win_count": 329,
+      "loss_count": 231
+    },
+    "2019-2020 Accumulation": {
+      "total_trades": 398,
+      "win_rate": 53.015075376884425,
+      "sharpe_ratio": 2.302457479945446,
+      "max_drawdown": -2.6526224182111213,
+      "total_return_pct": 9.745460119631941,
+      "profit_factor": 1.3087169835209398,
+      "avg_win": 3.8400922144299887,
+      "avg_loss": -3.3622781718860866,
+      "win_count": 211,
+      "loss_count": 187
+    },
+    "2021 Major Bull": {
+      "total_trades": 258,
+      "win_rate": 52.32558139534884,
+      "sharpe_ratio": 0.5060639892233963,
+      "max_drawdown": -3.8129060900884566,
+      "total_return_pct": 1.0384770866252802,
+      "profit_factor": 1.0427309410249594,
+      "avg_win": 3.8042348903363763,
+      "avg_loss": -3.9119826571287972,
+      "win_count": 135,
+      "loss_count": 123
+    },
+    "2022 Bear Market": {
+      "total_trades": 207,
+      "win_rate": 54.589371980676326,
+      "sharpe_ratio": 2.4748233822762935,
+      "max_drawdown": -1.7233035484470707,
+      "total_return_pct": 5.070599227462429,
+      "profit_factor": 1.3015754930571564,
+      "avg_win": 3.905477455228758,
+      "avg_loss": -3.5801998011327285,
+      "win_count": 113,
+      "loss_count": 94
+    },
+    "2023-2024 Recovery": {
+      "total_trades": 254,
+      "win_rate": 45.2755905511811,
+      "sharpe_ratio": 0.8184526604872974,
+      "max_drawdown": -2.108281135366644,
+      "total_return_pct": 2.437805296516846,
+      "profit_factor": 1.1245406991355456,
+      "avg_win": 3.802871088423326,
+      "avg_loss": -2.8167425706143003,
+      "win_count": 115,
+      "loss_count": 139
+    },
+    "Last 12 Months": {
+      "total_trades": 166,
+      "win_rate": 46.3855421686747,
+      "sharpe_ratio": 0.4317683732205095,
+      "max_drawdown": -2.108281135366634,
+      "total_return_pct": 0.74336542621837,
+      "profit_factor": 1.0507768312613424,
+      "avg_win": 3.996129552285439,
+      "avg_loss": -3.3886642700231806,
+      "win_count": 77,
+      "loss_count": 89
+    }
+  },
+  "Moderate Trend": {
+    "2017-2018 First Bull": {
+      "total_trades": 1233,
+      "win_rate": 58.06974858069749,
+      "sharpe_ratio": 2.1139950808954864,
+      "max_drawdown": -4.5635818319070935,
+      "total_return_pct": 22.27612375873131,
+      "profit_factor": 1.1639443507062925,
+      "avg_win": 2.6974323238692914,
+      "avg_loss": -3.2052260288948946,
+      "win_count": 716,
+      "loss_count": 517
+    },
+    "2019-2020 Accumulation": {
+      "total_trades": 874,
+      "win_rate": 54.69107551487414,
+      "sharpe_ratio": 1.3063817076389195,
+      "max_drawdown": -3.6123731926819516,
+      "total_return_pct": 11.610442041047865,
+      "profit_factor": 1.1255041507085275,
+      "avg_win": 2.6459786010646167,
+      "avg_loss": -2.8606523710718634,
+      "win_count": 478,
+      "loss_count": 396
+    },
+    "2021 Major Bull": {
+      "total_trades": 625,
+      "win_rate": 56.16,
+      "sharpe_ratio": 0.317093629694898,
+      "max_drawdown": -3.343204078002096,
+      "total_return_pct": 1.3901210514301638,
+      "profit_factor": 1.0204277309159357,
+      "avg_win": 2.4844303936598546,
+      "avg_loss": -3.1219328586614523,
+      "win_count": 351,
+      "loss_count": 274
+    },
+    "2022 Bear Market": {
+      "total_trades": 476,
+      "win_rate": 58.19327731092437,
+      "sharpe_ratio": 1.531732683969015,
+      "max_drawdown": -2.9313283241649324,
+      "total_return_pct": 6.865091777421505,
+      "profit_factor": 1.1412648609394571,
+      "avg_win": 2.3850984739710177,
+      "avg_loss": -2.9184628260446406,
+      "win_count": 277,
+      "loss_count": 199
+    },
+    "2023-2024 Recovery": {
+      "total_trades": 518,
+      "win_rate": 52.8957528957529,
+      "sharpe_ratio": 0.3651734252952739,
+      "max_drawdown": -4.329467795218195,
+      "total_return_pct": 2.0945504843646487,
+      "profit_factor": 1.0412129613127976,
+      "avg_win": 2.3648674903967812,
+      "avg_loss": -2.54970943839693,
+      "win_count": 274,
+      "loss_count": 244
+    },
+    "Last 12 Months": {
+      "total_trades": 354,
+      "win_rate": 53.38983050847458,
+      "sharpe_ratio": 0.49308428576875224,
+      "max_drawdown": -4.420732628960026,
+      "total_return_pct": 1.7970682791943402,
+      "profit_factor": 1.0472852254833112,
+      "avg_win": 2.529490670965049,
+      "avg_loss": -2.7700914147804667,
+      "win_count": 189,
+      "loss_count": 165
+    }
+  }
+}
