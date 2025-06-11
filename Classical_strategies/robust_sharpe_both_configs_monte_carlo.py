@@ -7,6 +7,7 @@ No plotting for speed optimization
 import pandas as pd
 import numpy as np
 from strategy_code.Prod_strategy import OptimizedProdStrategy, OptimizedStrategyConfig
+from strategy_code.Prod_plotting import plot_production_results
 from technical_indicators_custom import TIC
 import warnings
 warnings.filterwarnings('ignore')
@@ -116,13 +117,15 @@ def create_config_2_scalping():
     return OptimizedProdStrategy(config)
 
 
-def run_monte_carlo_test_both_configs(n_iterations=50, sample_size=5000):
+def run_monte_carlo_test_both_configs(n_iterations=50, sample_size=5000, plot_last=False, save_plots=False):
     """
     Run Monte Carlo testing on both strategy configurations
     
     Parameters:
     - n_iterations: Number of random samples to test
     - sample_size: Number of contiguous data points per sample
+    - plot_last: Whether to plot the last iteration results
+    - save_plots: Whether to save plots to file (only used if plot_last=True)
     """
     
     print("="*80)
@@ -165,6 +168,10 @@ def run_monte_carlo_test_both_configs(n_iterations=50, sample_size=5000):
         print(f"\nRunning {n_iterations} iterations...")
         print("-" * 80)
         
+        # Store last iteration for plotting
+        last_sample_df = None
+        last_results = None
+        
         for i in range(n_iterations):
             # Get random starting point (ensure we have enough data)
             max_start = len(df) - sample_size
@@ -176,6 +183,11 @@ def run_monte_carlo_test_both_configs(n_iterations=50, sample_size=5000):
             
             # Run backtest on sample
             results = strategy.run_backtest(sample_df)
+            
+            # Store last iteration data
+            if i == n_iterations - 1:
+                last_sample_df = sample_df.copy()
+                last_results = results
             
             # Store results
             iteration_data = {
@@ -242,6 +254,25 @@ def run_monte_carlo_test_both_configs(n_iterations=50, sample_size=5000):
         csv_filename = f'results/monte_carlo_results_{config_name.replace(":", "").replace(" ", "_").lower()}.csv'
         results_df.to_csv(csv_filename, index=False)
         print(f"\nDetailed results saved to {csv_filename}")
+        
+        # Plot last iteration if requested
+        if plot_last and last_sample_df is not None and last_results is not None:
+            print(f"\nPlotting last iteration results for {config_name}...")
+            
+            # Generate plot
+            fig = plot_production_results(
+                df=last_sample_df,
+                results=last_results,
+                title=f"{config_name} - Last Iteration\nSharpe={last_results['sharpe_ratio']:.3f}, P&L=${last_results['total_pnl']:,.0f}",
+                show_pnl=True,
+                show=not save_plots  # Show plot if not saving
+            )
+            
+            # Save plot if requested
+            if save_plots:
+                plot_filename = f'results/last_iteration_{config_name.replace(":", "").replace(" ", "_").lower()}.png'
+                fig.savefig(plot_filename, dpi=150, bbox_inches='tight')
+                print(f"Plot saved to {plot_filename}")
     
     # Compare both configurations
     print("\n" + "="*80)
@@ -276,5 +307,20 @@ def run_monte_carlo_test_both_configs(n_iterations=50, sample_size=5000):
 
 
 if __name__ == "__main__":
+    import sys
+    
+    # Check command line arguments
+    plot_last = '--plot' in sys.argv or '-p' in sys.argv
+    save_plots = '--save-plots' in sys.argv or '-s' in sys.argv
+    
     # Run Monte Carlo test for both configurations
-    results = run_monte_carlo_test_both_configs(n_iterations=50, sample_size=8000)
+    results = run_monte_carlo_test_both_configs(
+        n_iterations=50, 
+        sample_size=8000,
+        plot_last=plot_last,
+        save_plots=save_plots
+    )
+    
+    if plot_last:
+        print("\nNote: Run with --plot or -p to display plots of the last iteration")
+        print("      Run with --save-plots or -s to save plots to files")

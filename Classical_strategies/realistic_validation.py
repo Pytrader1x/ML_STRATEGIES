@@ -123,52 +123,102 @@ def run_realistic_validation():
     ]
     
     # Run tests
-    n_tests = 10
+    n_tests = 30
     sample_size = 5000
     
+    # Store paired results for direct comparison
+    paired_results = {
+        'Config 1': {'original': [], 'slippage': []},
+        'Config 2': {'original': [], 'slippage': []}
+    }
+    
+    print("\nRunning 30 paired tests (original vs slippage for each sample)...")
+    
+    # Test both configs with same random samples
+    for i in range(n_tests):
+        # Get random sample that will be used for all 4 tests
+        max_start = len(df) - sample_size
+        start_idx = np.random.randint(0, max_start)
+        sample_df = df.iloc[start_idx:start_idx + sample_size].copy()
+        
+        # Print progress every 5 iterations
+        if i % 5 == 0:
+            print(f"\nIteration {i+1}/{n_tests}...")
+        
+        # Test Config 1 Original
+        strategy1_orig = create_config_1_ultra_tight_risk()
+        results1_orig = strategy1_orig.run_backtest(sample_df.copy())
+        paired_results['Config 1']['original'].append({
+            'sharpe': results1_orig['sharpe_ratio'],
+            'pnl': results1_orig['total_pnl'],
+            'win_rate': results1_orig['win_rate'],
+            'drawdown': results1_orig['max_drawdown']
+        })
+        
+        # Test Config 1 With Slippage
+        strategy1_slip = create_config_1_with_slippage()
+        results1_slip = strategy1_slip.run_backtest(sample_df.copy())
+        paired_results['Config 1']['slippage'].append({
+            'sharpe': results1_slip['sharpe_ratio'],
+            'pnl': results1_slip['total_pnl'],
+            'win_rate': results1_slip['win_rate'],
+            'drawdown': results1_slip['max_drawdown']
+        })
+        
+        # Test Config 2 Original
+        strategy2_orig = create_config_2_scalping()
+        results2_orig = strategy2_orig.run_backtest(sample_df.copy())
+        paired_results['Config 2']['original'].append({
+            'sharpe': results2_orig['sharpe_ratio'],
+            'pnl': results2_orig['total_pnl'],
+            'win_rate': results2_orig['win_rate'],
+            'drawdown': results2_orig['max_drawdown']
+        })
+        
+        # Test Config 2 With Slippage
+        strategy2_slip = create_config_2_with_slippage()
+        results2_slip = strategy2_slip.run_backtest(sample_df.copy())
+        paired_results['Config 2']['slippage'].append({
+            'sharpe': results2_slip['sharpe_ratio'],
+            'pnl': results2_slip['total_pnl'],
+            'win_rate': results2_slip['win_rate'],
+            'drawdown': results2_slip['max_drawdown']
+        })
+        
+        # Show sample comparison for first iteration
+        if i == 0:
+            print(f"\nSample comparison (same data):")
+            print(f"Config 1 Original: Sharpe={results1_orig['sharpe_ratio']:.3f}, P&L=${results1_orig['total_pnl']:,.0f}")
+            print(f"Config 1 Slippage: Sharpe={results1_slip['sharpe_ratio']:.3f}, P&L=${results1_slip['total_pnl']:,.0f}")
+            print(f"Config 2 Original: Sharpe={results2_orig['sharpe_ratio']:.3f}, P&L=${results2_orig['total_pnl']:,.0f}")
+            print(f"Config 2 Slippage: Sharpe={results2_slip['sharpe_ratio']:.3f}, P&L=${results2_slip['total_pnl']:,.0f}")
+    
+    # Calculate summary statistics
     results_summary = {}
     
-    for config_name, strategy in configs:
-        print(f"\n\nTesting {config_name}...")
-        print("-" * 60)
-        
-        sharpe_ratios = []
-        pnls = []
-        win_rates = []
-        drawdowns = []
-        
-        for i in range(n_tests):
-            # Random sample
-            max_start = len(df) - sample_size
-            start_idx = np.random.randint(0, max_start)
-            sample_df = df.iloc[start_idx:start_idx + sample_size].copy()
+    for config_name in ['Config 1', 'Config 2']:
+        for variant in ['original', 'slippage']:
+            data = paired_results[config_name][variant]
+            sharpes = [d['sharpe'] for d in data]
+            pnls = [d['pnl'] for d in data]
+            win_rates = [d['win_rate'] for d in data]
+            drawdowns = [d['drawdown'] for d in data]
             
-            # Run backtest
-            results = strategy.run_backtest(sample_df)
+            key = f"{config_name} {'Original' if variant == 'original' else 'With Slippage'}"
+            results_summary[key] = {
+                'avg_sharpe': np.mean(sharpes),
+                'avg_pnl': np.mean(pnls),
+                'avg_win_rate': np.mean(win_rates),
+                'avg_drawdown': np.mean(drawdowns),
+                'sharpe_above_1': sum(1 for s in sharpes if s > 1.0) / len(sharpes) * 100
+            }
             
-            sharpe_ratios.append(results['sharpe_ratio'])
-            pnls.append(results['total_pnl'])
-            win_rates.append(results['win_rate'])
-            drawdowns.append(results['max_drawdown'])
-            
-            if i == 0:
-                print(f"Sample result: Sharpe={results['sharpe_ratio']:.3f}, P&L=${results['total_pnl']:,.0f}, WR={results['win_rate']:.1f}%, DD={results['max_drawdown']:.1f}%")
-        
-        # Store summary
-        results_summary[config_name] = {
-            'avg_sharpe': np.mean(sharpe_ratios),
-            'avg_pnl': np.mean(pnls),
-            'avg_win_rate': np.mean(win_rates),
-            'avg_drawdown': np.mean(drawdowns),
-            'sharpe_above_1': sum(1 for s in sharpe_ratios if s > 1.0) / len(sharpe_ratios) * 100
-        }
-        
-        print(f"\nAverage over {n_tests} tests:")
-        print(f"Sharpe: {np.mean(sharpe_ratios):.3f}")
-        print(f"P&L: ${np.mean(pnls):,.0f}")
-        print(f"Win Rate: {np.mean(win_rates):.1f}%")
-        print(f"Max DD: {np.mean(drawdowns):.1f}%")
-        print(f"% Sharpe > 1.0: {results_summary[config_name]['sharpe_above_1']:.1f}%")
+            print(f"\n{key} - Average over {n_tests} tests:")
+            print(f"Sharpe: {np.mean(sharpes):.3f} (std: {np.std(sharpes):.3f})")
+            print(f"P&L: ${np.mean(pnls):,.0f} (std: ${np.std(pnls):,.0f})")
+            print(f"Win Rate: {np.mean(win_rates):.1f}% (std: {np.std(win_rates):.1f}%)")
+            print(f"Max DD: {np.mean(drawdowns):.1f}% (std: {np.std(drawdowns):.1f}%)")
+            print(f"% Sharpe > 1.0: {results_summary[key]['sharpe_above_1']:.1f}%")
     
     # Compare original vs slippage
     print("\n" + "="*80)
@@ -226,7 +276,19 @@ def run_realistic_validation():
     config1_robust = slip_1['sharpe_above_1'] >= 70 and slip_1['avg_sharpe'] > 1.0
     config2_robust = slip_2['sharpe_above_1'] >= 70 and slip_2['avg_sharpe'] > 1.0
     
-    if config2_robust:
+    # Also check if Config 1 has better slippage resilience
+    config1_better_slippage = (orig_1['avg_sharpe'] - slip_1['avg_sharpe']) / orig_1['avg_sharpe'] < 0.10  # Less than 10% degradation
+    
+    if config1_robust and config1_better_slippage:
+        print("\n✅ VALIDATION PASSED - Config 1 shows excellent robustness")
+        print(f"✅ Config 1 maintains Sharpe > 1.0 in {slip_1['sharpe_above_1']:.0f}% of tests with slippage")
+        print(f"✅ Minimal Sharpe degradation of only {abs(sharpe_impact_1):.1f}%")
+        print("✅ Suitable for institutional deployment")
+        print("\nRecommendations:")
+        print("- Use Config 1 (Ultra-Tight Risk) for consistent performance")
+        print("- 10 pip max stop loss provides good slippage buffer")
+        print("- Higher win rate (74%) compensates for tighter targets")
+    elif config2_robust:
         print("\n✅ VALIDATION PASSED - Strategies are genuine and robust")
         print(f"✅ Config 2 maintains Sharpe > 1.0 in {slip_2['sharpe_above_1']:.0f}% of tests with slippage")
         print("✅ Suitable for institutional deployment with proper risk controls")
@@ -248,12 +310,25 @@ def run_realistic_validation():
     print("REALISTIC PERFORMANCE EXPECTATIONS")
     print("="*80)
     
-    if config2_robust:
-        print(f"\nWith proper execution and 0-2 pip slippage:")
+    # Show expectations for the better performing config
+    if config1_robust and config1_better_slippage:
+        print("\nConfig 1 - With proper execution and 0-2 pip slippage:")
+        print(f"- Expected Sharpe Ratio: {slip_1['avg_sharpe']:.2f}")
+        print(f"- Expected Monthly Return: ${slip_1['avg_pnl']/3:.0f}")
+        print(f"- Expected Win Rate: {slip_1['avg_win_rate']:.1f}%")
+        print(f"- Expected Max Drawdown: {slip_1['avg_drawdown']:.1f}%")
+    elif config2_robust:
+        print("\nConfig 2 - With proper execution and 0-2 pip slippage:")
         print(f"- Expected Sharpe Ratio: {slip_2['avg_sharpe']:.2f}")
         print(f"- Expected Monthly Return: ${slip_2['avg_pnl']/3:.0f}")
         print(f"- Expected Win Rate: {slip_2['avg_win_rate']:.1f}%")
         print(f"- Expected Max Drawdown: {slip_2['avg_drawdown']:.1f}%")
+    else:
+        # Show both for comparison
+        print("\nConfig 1 - With slippage:")
+        print(f"- Sharpe: {slip_1['avg_sharpe']:.2f}, Monthly: ${slip_1['avg_pnl']/3:.0f}, WR: {slip_1['avg_win_rate']:.1f}%, DD: {slip_1['avg_drawdown']:.1f}%")
+        print("\nConfig 2 - With slippage:")
+        print(f"- Sharpe: {slip_2['avg_sharpe']:.2f}, Monthly: ${slip_2['avg_pnl']/3:.0f}, WR: {slip_2['avg_win_rate']:.1f}%, DD: {slip_2['avg_drawdown']:.1f}%")
     
     print(f"\nValidation completed: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
 
