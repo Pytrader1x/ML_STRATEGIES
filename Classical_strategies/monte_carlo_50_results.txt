@@ -1,0 +1,114 @@
+OMP: Info #276: omp_set_nested routine deprecated, please use omp_set_max_active_levels instead.
+Starting Strategy Runner - 2025-06-12 15:34:15
+================================================================================
+SINGLE CURRENCY MODE - AUDUSD
+Iterations: 50 | Sample Size: 8,000 rows
+================================================================================
+Loading AUDUSD data...
+Total data points: 380,167
+Date range: 2010-01-03 17:00:00 to 2025-05-30 16:45:00
+Calculating indicators...
+
+================================================================================
+Testing Config 1: Ultra-Tight Risk Management
+================================================================================
+  [  1/50] Sharpe:  1.345 | Return:   51.4% | WR:  71.8% | Trades:  443 (318W/125L)
+  [ 10/50] Sharpe:  1.047 | Return:   78.1% | WR:  67.3% | Trades:  600 (404W/196L)
+  [ 20/50] Sharpe:  1.206 | Return:   75.0% | WR:  65.0% | Trades:  629 (409W/220L)
+  [ 30/50] Sharpe:  1.969 | Return:  100.0% | WR:  62.9% | Trades:  771 (485W/286L)
+  [ 40/50] Sharpe:  1.664 | Return:   50.1% | WR:  68.8% | Trades:  635 (437W/198L)
+  [ 50/50] Sharpe:  1.115 | Return:   52.2% | WR:  66.5% | Trades:  570 (379W/191L)
+
+━━━ Performance Metrics ━━━
+  Sharpe Ratio:     1.331 ± 0.278
+  Total Return:     64.6% ± 24.7%
+  Win Rate:         69.0% ± 2.8%
+  Max Drawdown:     -1.3% ± 0.4%
+  Profit Factor:    2.42
+
+━━━ Trade Statistics ━━━
+  Total Trades:     570 ± 114
+  Wins/Losses:      391W / 179L
+  Max Consec Wins:  14.9
+  Max Consec Loss:  4.8
+  Avg Consec Wins:  3.2
+  Avg Consec Loss:  1.2
+
+━━━ Consistency ━━━
+  Sharpe > 1.0:     45/50 (90%)
+  Profitable:       50/50 (100%)
+
+Calendar Year Analysis for Config 1: Ultra-Tight Risk Management:
+----------------------------------------------------------------------------------------------------
+Year   Count  Avg Sharpe   Avg Return%  Avg WinRate%  Avg MaxDD%   Avg PF  
+----------------------------------------------------------------------------------------------------
+2010   3      1.440        93.9         64.5          -1.4         2.40    
+2011   2      1.930        103.3        63.7          -2.3         2.30    
+2012   3      1.480        97.2         70.9          -1.0         2.82    
+2013   3      1.300        76.4         65.5          -1.6         2.25    
+2014   6      1.370        71.2         68.1          -1.7         2.55    
+2015   8      1.560        71.9         68.8          -1.1         2.37    
+2016   4      1.180        53.2         69.0          -1.6         2.32    
+2017   2      1.160        36.5         71.1          -0.9         2.17    
+2018   4      1.150        46.0         71.3          -1.0         2.48    
+2019   3      1.170        27.3         72.8          -1.0         2.30    
+2020   3      1.140        71.0         67.8          -1.4         2.43    
+2021   3      1.090        39.0         72.2          -1.2         2.40    
+2022   2      1.350        68.7         68.4          -1.1         2.31    
+2023   2      1.150        69.2         71.7          -1.2         3.14    
+2024   2      1.250        30.3         69.7          -1.7         2.01    
+
+Results saved to results/AUDUSD_config_1_ultra-tight_risk_management_monte_carlo.csv
+
+================================================================================
+Testing Config 2: Scalping Strategy
+================================================================================
+  [  1/50] Sharpe:  0.598 | Return:   30.6% | WR:  64.8% | Trades:  670 (434W/236L)
+  [ 10/50] Sharpe:  1.116 | Return:   28.1% | WR:  59.2% | Trades:  779 (461W/318L)
+  [ 20/50] Sharpe:  1.764 | Return:   60.1% | WR:  63.2% | Trades:  930 (588W/342L)
+  [ 30/50] Sharpe:  0.687 | Return:   42.0% | WR:  64.1% | Trades:  668 (428W/240L)
+  [ 40/50] Sharpe:  1.677 | Return:   59.7% | WR:  60.7% | Trades: 1050 (637W/413L)
+  [ 50/50] Sharpe:  1.214 | Return:   23.3% | WR:  62.4% | Trades:  737 (460W/277L)
+
+━━━ Performance Metrics ━━━
+  Sharpe Ratio:     1.310 ± 0.417
+  Total Return:     50.3% ± 27.1%
+  Win Rate:         61.6% ± 2.3%
+  Max Drawdown:     -0.8% ± 0.2%
+  Profit Factor:    2.27
+
+━━━ Trade Statistics ━━━
+  Total Trades:     877 ± 163
+  Wins/Losses:      538W / 339L
+  Max Consec Wins:  11.3
+  Max Consec Loss:  5.9
+  Avg Consec Wins:  2.5
+  Avg Consec Loss:  1.7
+
+━━━ Consistency ━━━
+  Sharpe > 1.0:     38/50 (76%)
+  Profitable:       50/50 (100%)
+
+Calendar Year Analysis for Config 2: Scalping Strategy:
+----------------------------------------------------------------------------------------------------
+Year   Count  Avg Sharpe   Avg Return%  Avg WinRate%  Avg MaxDD%   Avg PF  
+----------------------------------------------------------------------------------------------------
+2010   1      2.050        95.0         57.1          -0.6         2.53    
+2011   4      1.750        115.5        57.3          -1.1         2.74    
+2012   4      1.440        59.8         62.9          -0.7         2.50    
+2013   4      1.340        56.8         60.1          -0.9         2.27    
+2014   7      1.590        46.2         61.5          -0.8         2.13    
+2015   5      1.550        59.2         61.1          -0.7         2.25    
+2016   4      1.310        45.0         60.4          -0.8         2.15    
+2018   3      0.930        35.4         63.3          -0.7         2.21    
+2019   2      0.990        20.9         65.2          -0.8         2.12    
+2020   2      1.140        28.4         59.5          -0.7         1.96    
+2021   2      1.030        33.2         64.2          -0.8         2.23    
+2022   1      1.080        54.9         60.5          -0.7         2.34    
+2023   4      0.730        47.7         64.1          -1.0         2.76    
+2024   5      1.090        22.2         63.3          -0.6         1.91    
+2025   2      1.350        31.8         62.6          -0.9         1.96    
+
+Results saved to results/AUDUSD_config_2_scalping_strategy_monte_carlo.csv
+
+Testing completed: 2025-06-12 15:34:50
