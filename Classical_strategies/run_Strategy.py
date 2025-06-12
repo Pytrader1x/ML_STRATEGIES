@@ -123,11 +123,100 @@ def load_and_prepare_data(currency_pair, data_path=None):
     return df
 
 
+def calculate_trade_statistics(results):
+    """Calculate detailed trade statistics including consecutive wins/losses"""
+    stats = {}
+    
+    # Extract basic stats if available
+    if 'trade_results' in results and results['trade_results'] is not None:
+        trades_df = results['trade_results']
+        if len(trades_df) > 0:
+            # Calculate consecutive wins/losses
+            wins = (trades_df['pnl'] > 0).astype(int)
+            losses = (trades_df['pnl'] < 0).astype(int)
+            
+            # Consecutive wins
+            win_streaks = []
+            current_streak = 0
+            for win in wins:
+                if win == 1:
+                    current_streak += 1
+                else:
+                    if current_streak > 0:
+                        win_streaks.append(current_streak)
+                    current_streak = 0
+            if current_streak > 0:
+                win_streaks.append(current_streak)
+            
+            # Consecutive losses
+            loss_streaks = []
+            current_streak = 0
+            for loss in losses:
+                if loss == 1:
+                    current_streak += 1
+                else:
+                    if current_streak > 0:
+                        loss_streaks.append(current_streak)
+                    current_streak = 0
+            if current_streak > 0:
+                loss_streaks.append(current_streak)
+            
+            stats['max_consecutive_wins'] = max(win_streaks) if win_streaks else 0
+            stats['avg_consecutive_wins'] = np.mean(win_streaks) if win_streaks else 0
+            stats['max_consecutive_losses'] = max(loss_streaks) if loss_streaks else 0
+            stats['avg_consecutive_losses'] = np.mean(loss_streaks) if loss_streaks else 0
+            stats['num_wins'] = wins.sum()
+            stats['num_losses'] = losses.sum()
+        else:
+            stats = {
+                'max_consecutive_wins': 0,
+                'avg_consecutive_wins': 0,
+                'max_consecutive_losses': 0,
+                'avg_consecutive_losses': 0,
+                'num_wins': 0,
+                'num_losses': 0
+            }
+    else:
+        # Estimate from aggregate stats
+        total_trades = results.get('total_trades', 0)
+        win_rate = results.get('win_rate', 0) / 100
+        
+        stats['num_wins'] = int(total_trades * win_rate)
+        stats['num_losses'] = total_trades - stats['num_wins']
+        
+        # Rough estimates for consecutive stats
+        if win_rate > 0:
+            stats['avg_consecutive_wins'] = 1 / (1 - win_rate) if win_rate < 1 else total_trades
+            stats['max_consecutive_wins'] = min(int(stats['avg_consecutive_wins'] * 2), stats['num_wins'])
+        else:
+            stats['avg_consecutive_wins'] = 0
+            stats['max_consecutive_wins'] = 0
+            
+        if win_rate < 1:
+            stats['avg_consecutive_losses'] = 1 / win_rate if win_rate > 0 else total_trades
+            stats['max_consecutive_losses'] = min(int(stats['avg_consecutive_losses'] * 2), stats['num_losses'])
+        else:
+            stats['avg_consecutive_losses'] = 0
+            stats['max_consecutive_losses'] = 0
+    
+    return stats
+
+
 def run_single_monte_carlo(df, strategy, n_iterations, sample_size, return_last_sample=False):
     """Run Monte Carlo simulation for a single strategy configuration"""
     iteration_results = []
     last_sample_df = None
     last_results = None
+    
+    # Track aggregate statistics
+    all_trade_stats = {
+        'max_consecutive_wins': [],
+        'avg_consecutive_wins': [],
+        'max_consecutive_losses': [],
+        'avg_consecutive_losses': [],
+        'num_wins': [],
+        'num_losses': []
+    }
     
     for i in range(n_iterations):
         # Get random starting point
@@ -141,10 +230,16 @@ def run_single_monte_carlo(df, strategy, n_iterations, sample_size, return_last_
         # Run backtest
         results = strategy.run_backtest(sample_df)
         
+        # Calculate trade statistics
+        trade_stats = calculate_trade_statistics(results)
+        for key in all_trade_stats:
+            all_trade_stats[key].append(trade_stats.get(key, 0))
+        
         # Store last iteration data if needed
         if return_last_sample and i == n_iterations - 1:
             last_sample_df = sample_df.copy()
             last_results = results.copy()
+            last_results['trade_stats'] = trade_stats
         
         # Store results
         iteration_data = {
@@ -159,18 +254,36 @@ def run_single_monte_carlo(df, strategy, n_iterations, sample_size, return_last_
             'max_drawdown': results['max_drawdown'],
             'profit_factor': results['profit_factor'],
             'avg_win': results['avg_win'],
-            'avg_loss': results['avg_loss']
+            'avg_loss': results['avg_loss'],
+            'num_wins': trade_stats['num_wins'],
+            'num_losses': trade_stats['num_losses'],
+            'max_consec_wins': trade_stats['max_consecutive_wins'],
+            'max_consec_losses': trade_stats['max_consecutive_losses']
         }
         
         iteration_results.append(iteration_data)
         
-        # Print progress
-        if (i + 1) % 10 == 0 or i == 0:
-            print(f"  Completed {i + 1}/{n_iterations} iterations...")
+        # Print progress with latest results
+        if (i + 1) % 10 == 0 or i == 0 or i == n_iterations - 1:
+            print(f"  [{i + 1:3d}/{n_iterations}] Sharpe: {results['sharpe_ratio']:>6.3f} | Return: {results['total_return']:>6.1f}% | " +
+                  f"WR: {results['win_rate']:>5.1f}% | Trades: {results['total_trades']:>4} ({trade_stats['num_wins']}W/{trade_stats['num_losses']}L)")
+    
+    # Create results dataframe
+    results_df = pd.DataFrame(iteration_results)
+    
+    # Add aggregate trade statistics
+    results_df.attrs['aggregate_trade_stats'] = {
+        'avg_max_consecutive_wins': np.mean(all_trade_stats['max_consecutive_wins']),
+        'avg_avg_consecutive_wins': np.mean(all_trade_stats['avg_consecutive_wins']),
+        'avg_max_consecutive_losses': np.mean(all_trade_stats['max_consecutive_losses']),
+        'avg_avg_consecutive_losses': np.mean(all_trade_stats['avg_consecutive_losses']),
+        'avg_num_wins': np.mean(all_trade_stats['num_wins']),
+        'avg_num_losses': np.mean(all_trade_stats['num_losses'])
+    }
     
     if return_last_sample:
-        return pd.DataFrame(iteration_results), last_sample_df, last_results
-    return pd.DataFrame(iteration_results)
+        return results_df, last_sample_df, last_results
+    return results_df
 
 
 def generate_calendar_year_analysis(results_df, config_name, currency=None, show_plots=False, save_plots=False):
@@ -308,13 +421,28 @@ def run_single_currency_mode(currency='AUDUSD', n_iterations=50, sample_size=800
             all_results[config_name] = {'results_df': results_df}
         
         # Print summary statistics
-        print("\nSummary Statistics:")
-        print(f"  Average Sharpe Ratio:  {results_df['sharpe_ratio'].mean():.3f} (std: {results_df['sharpe_ratio'].std():.3f})")
-        print(f"  Average Total Return:  {results_df['total_return'].mean():.1f}% (std: {results_df['total_return'].std():.1f}%)")
-        print(f"  Average Win Rate:      {results_df['win_rate'].mean():.1f}% (std: {results_df['win_rate'].std():.1f}%)")
-        print(f"  Average Max Drawdown:  {results_df['max_drawdown'].mean():.1f}% (std: {results_df['max_drawdown'].std():.1f}%)")
-        print(f"  % Sharpe > 1.0:        {(results_df['sharpe_ratio'] > 1.0).sum()/n_iterations*100:.1f}%")
-        print(f"  % Profitable:          {(results_df['total_pnl'] > 0).sum()/n_iterations*100:.1f}%")
+        print("\n━━━ Performance Metrics ━━━")
+        print(f"  Sharpe Ratio:     {results_df['sharpe_ratio'].mean():.3f} ± {results_df['sharpe_ratio'].std():.3f}")
+        print(f"  Total Return:     {results_df['total_return'].mean():.1f}% ± {results_df['total_return'].std():.1f}%")
+        print(f"  Win Rate:         {results_df['win_rate'].mean():.1f}% ± {results_df['win_rate'].std():.1f}%")
+        print(f"  Max Drawdown:     {results_df['max_drawdown'].mean():.1f}% ± {results_df['max_drawdown'].std():.1f}%")
+        print(f"  Profit Factor:    {results_df['profit_factor'].mean():.2f}")
+        
+        print("\n━━━ Trade Statistics ━━━")
+        print(f"  Total Trades:     {results_df['total_trades'].mean():.0f} ± {results_df['total_trades'].std():.0f}")
+        print(f"  Wins/Losses:      {results_df['num_wins'].mean():.0f}W / {results_df['num_losses'].mean():.0f}L")
+        print(f"  Max Consec Wins:  {results_df['max_consec_wins'].mean():.1f}")
+        print(f"  Max Consec Loss:  {results_df['max_consec_losses'].mean():.1f}")
+        
+        # Get aggregate stats if available
+        if hasattr(results_df, 'attrs') and 'aggregate_trade_stats' in results_df.attrs:
+            agg_stats = results_df.attrs['aggregate_trade_stats']
+            print(f"  Avg Consec Wins:  {agg_stats['avg_avg_consecutive_wins']:.1f}")
+            print(f"  Avg Consec Loss:  {agg_stats['avg_avg_consecutive_losses']:.1f}")
+        
+        print("\n━━━ Consistency ━━━")
+        print(f"  Sharpe > 1.0:     {(results_df['sharpe_ratio'] > 1.0).sum()}/{n_iterations} ({(results_df['sharpe_ratio'] > 1.0).sum()/n_iterations*100:.0f}%)")
+        print(f"  Profitable:       {(results_df['total_pnl'] > 0).sum()}/{n_iterations} ({(results_df['total_pnl'] > 0).sum()/n_iterations*100:.0f}%)")
         
         # Calendar year analysis
         if enable_calendar_analysis and len(results_df) > 0:
@@ -1043,15 +1171,13 @@ def run_crypto_mode(crypto='ETHUSD', test_periods=None, save_results=False):
                 metrics = strategy.run_backtest(period_df)
                 config_results[period_name] = metrics
                 
+                # Calculate trade statistics
+                trade_stats = calculate_trade_statistics(metrics)
+                
                 print(f"\n{period_name} ({len(period_df):,} rows):")
-                print(f"  Sharpe Ratio:  {metrics['sharpe_ratio']:.3f}")
-                print(f"  Total Return:  {metrics['total_return']:.1f}%")
-                print(f"  Total P&L:     ${metrics['total_pnl']:,.0f}")
-                print(f"  Win Rate:      {metrics['win_rate']:.1f}%")
-                print(f"  Total Trades:  {metrics['total_trades']}")
-                print(f"  Max Drawdown:  {metrics['max_drawdown']:.1f}%")
-                print(f"  Profit Factor: {metrics['profit_factor']:.2f}")
-                print(f"  Avg Win/Loss:  {metrics['avg_win']:.1f}% / {metrics['avg_loss']:.1f}%")
+                print(f"  Sharpe: {metrics['sharpe_ratio']:>6.3f} | Return: {metrics['total_return']:>7.1f}% | P&L: ${metrics['total_pnl']:>10,.0f}")
+                print(f"  WinRate: {metrics['win_rate']:>5.1f}% | Trades: {metrics['total_trades']:>4} ({trade_stats['num_wins']}W/{trade_stats['num_losses']}L) | MaxDD: {metrics['max_drawdown']:>5.1f}%")
+                print(f"  MaxConsecW/L: {trade_stats['max_consecutive_wins']}/{trade_stats['max_consecutive_losses']} | PF: {metrics['profit_factor']:.2f}")
                 
             except Exception as e:
                 print(f"\n{period_name}: Error - {e}")
