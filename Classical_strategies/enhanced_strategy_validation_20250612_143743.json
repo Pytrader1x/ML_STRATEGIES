@@ -1,0 +1,23 @@
+{
+  "currency_pair": "AUDUSD",
+  "validation_date": "2025-06-12T14:37:43.069887",
+  "walk_forward_results": {
+    "original_strategy": [
+      {
+        "total_trades": 1,
+        "winning_trades": 0,
+        "losing_trades": 1,
+        "win_rate": 0.0,
+        "total_pnl": -462.28987743801576,
+        "total_return": -0.4622898774380156,
+        "avg_win": 0,
+        "avg_loss": -462.28987743801576,
+        "profit_factor": 0.0,
+        "max_drawdown": 0.0,
+        "sharpe_ratio": 0,
+        "exit_reasons": {
+          "end_of_data": 1
+        },
+        "final_capital": 99537.71012256198,
+        "trades": [
+          
