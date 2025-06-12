@@ -1,0 +1,3122 @@
+{
+  "analysis_date": "2025-06-12T15:44:38.208358",
+  "currency": "AUDUSD",
+  "total_trades_analyzed": 40,
+  "realistic_trades": 0,
+  "realism_percentage": 0.0,
+  "all_analyses": {
+    "Config 1: Ultra-Tight Risk": [
+      {
+        "trade_number": 1,
+        "entry": {
+          "entry_time": "2017-08-30 14:30:00",
+          "entry_price": 0.78994,
+          "direction": "SHORT",
+          "position_size": 200000.0,
+          "stop_loss": 0.79094,
+          "take_profit": 0.788281126,
+          "entry_signals": {
+            "NTI_Direction": -1.0,
+            "MB_Bias": "-1",
+            "IC_Signal": "1",
+            "IC_Regime": "2",
+            "IC_ATR_Normalized": 0.07260487807147681
+          },
+          "entry_validation": {
+            "nti_mb_aligned": "True",
+            "ic_signal_present": "True",
+            "direction_correct": "True",
+            "all_conditions_met": "True"
+          },
+          "price_validation": {
+            "bar_open": 0.78967,
+            "bar_high": 0.79004,
+            "bar_low": 0.78967,
+            "bar_close": 0.78994,
+            "entry_within_bar": "True",
+            "entry_at_close": "True"
+          },
+          "risk_reward": {
+            "sl_distance_pips": 10.0,
+            "tp_distance_pips": 16.6,
+            "risk_reward_ratio": 1.66
+          },
+          "market_context": {
+            "atr_value": 0.07260487807147681,
+            "market_regime": "Trending",
+            "recent_volatility": 0.08056073584510542
+          }
+        },
+        "exit": {
+          "exit_time": "2017-08-30 19:30:00",
+          "exit_price": 0.79094,
+          "exit_reason": "stop_loss",
+          "pnl_pips": 0,
+          "pnl_dollars": -200.00000000000017,
+          "trade_duration": {
+            "bars_held": 20,
+            "time_held": "0 days 05:00:00"
+          },
+          "price_validation": {
+            "bar_open": 0.79056,
+            "bar_high": 0.79127,
+            "bar_low": 0.79055,
+            "bar_close": 0.79127,
+            "exit_within_bar": "True"
+          },
+          "sl_validation": {
+            "sl_could_be_hit": "True",
+            "exit_exactly_at_sl": "True",
+            "realistic": false
+          },
+          "realism_checks": {
+            "both_sl_tp_in_bar": false,
+            "impossible_fill": false
+          }
+        },
+        "overall_realism": {
+          "realistic": false,
+          "issues": [
+            "Entry exactly at close price (unrealistic)",
+            "Exit exactly at SL without slippage (unrealistic)"
+          ],
+          "severity": "MODERATE"
+        }
+      },
+      {
+        "trade_number": 2,
+        "entry": {
+          "entry_time": "2017-09-08 03:30:00",
+          "entry_price": 0.80921,
+          "direction": "LONG",
+          "position_size": 200000.0,
+          "stop_loss": 0.80821,
+          "take_profit": 0.810909341,
+          "entry_signals": {
+            "NTI_Direction": 1.0,
+            "MB_Bias": "1",
+            "IC_Signal": "1",
+            "IC_Regime": "2",
+            "IC_ATR_Normalized": 0.12837608697225375
+          },
+          "entry_validation": {
+            "nti_mb_aligned": "True",
+            "ic_signal_present": "True",
+            "direction_correct": "True",
+            "all_conditions_met": "True"
+          },
+          "price_validation": {
+            "bar_open": 0.80909,
+            "bar_high": 0.80922,
+            "bar_low": 0.80824,
+            "bar_close": 0.80921,
+            "entry_within_bar": "True",
+            "entry_at_close": "True"
+          },
+          "risk_reward": {
+            "sl_distance_pips": 10.0,
+            "tp_distance_pips": 17.0,
+            "risk_reward_ratio": 1.7
+          },
+          "market_context": {
+            "atr_value": 0.12837608697225375,
+            "market_regime": "Trending",
+            "recent_volatility": 0.13151879255330473
+          }
+        },
+        "exit": {
+          "exit_time": "2017-09-08 07:00:00",
+          "exit_price": 0.810909341,
+          "exit_reason": "take_profit_1",
+          "pnl_pips": 0,
+          "pnl_dollars": 388.60951800000873,
+          "trade_duration": {
+            "bars_held": 14,
+            "time_held": "0 days 03:30:00"
+          },
+          "price_validation": {
+            "bar_open": 0.81112,
+            "bar_high": 0.81131,
+            "bar_low": 0.81029,
+            "bar_close": 0.81059,
+            "exit_within_bar": "True"
+          },
+          "tp_validation": {
+            "tp_could_be_hit": "True",
+            "exit_exactly_at_tp": "True",
+            "realistic": false
+          },
+          "realism_checks": {
+            "both_sl_tp_in_bar": false,
+            "impossible_fill": false
+          }
+        },
+        "overall_realism": {
+          "realistic": false,
+          "issues": [
+            "Entry exactly at close price (unrealistic)",
+            "Exit exactly at TP without slippage (unrealistic)"
+          ],
+          "severity": "MODERATE"
+        }
+      },
+      {
+        "trade_number": 3,
+        "entry": {
+          "entry_time": "2017-09-18 23:00:00",
+          "entry_price": 0.79706,
+          "direction": "SHORT",
+          "position_size": 600000.0,
+          "stop_loss": 0.7974448196086242,
+          "take_profit": 0.795386174,
+          "entry_signals": {
+            "NTI_Direction": -1.0,
+            "MB_Bias": "-1",
+            "IC_Signal": "0",
+            "IC_Regime": "1",
+            "IC_ATR_Normalized": 0.0821863326393002
+          },
+          "entry_validation": {
+            "nti_mb_aligned": "True",
+            "ic_signal_present": "False",
+            "direction_correct": "True",
+            "all_conditions_met": "False"
+          },
+          "price_validation": {
+            "bar_open": 0.79679,
+            "bar_high": 0.79708,
+            "bar_low": 0.79662,
+            "bar_close": 0.79706,
+            "entry_within_bar": "True",
+            "entry_at_close": "True"
+          },
+          "risk_reward": {
+            "sl_distance_pips": 3.8,
+            "tp_distance_pips": 16.7,
+            "risk_reward_ratio": 4.35
+          },
+          "market_context": {
+            "atr_value": 0.0821863326393002,
+            "market_regime": "Ranging",
+            "recent_volatility": 0.09119526737034359
+          }
+        },
+        "exit": {
+          "exit_time": "2017-09-19 00:45:00",
+          "exit_price": 0.7974448196086242,
+          "exit_reason": "stop_loss",
+          "pnl_pips": 0,
+          "pnl_dollars": -63.617482666942465,
+          "trade_duration": {
+            "bars_held": 7,
+            "time_held": "0 days 01:45:00"
+          },
+          "price_validation": {
+            "bar_open": 0.79696,
+            "bar_high": 0.79749,
+            "bar_low": 0.7969,
+            "bar_close": 0.79749,
+            "exit_within_bar": "True"
+          },
+          "sl_validation": {
+            "sl_could_be_hit": "True",
+            "exit_exactly_at_sl": "True",
+            "realistic": false
+          },
+          "realism_checks": {
+            "both_sl_tp_in_bar": false,
+            "impossible_fill": false
+          }
+        },
+        "overall_realism": {
+          "realistic": false,
+          "issues": [
+            "Entry conditions not properly met",
+            "Entry exactly at close price (unrealistic)",
+            "Exit exactly at SL without slippage (unrealistic)"
+          ],
+          "severity": "SEVERE"
+        }
+      },
+      {
+        "trade_number": 4,
+        "entry": {
+          "entry_time": "2017-09-20 16:30:00",
+          "entry_price": 0.80286,
+          "direction": "SHORT",
+          "position_size": 200000.0,
+          "stop_loss": 0.80386,
+          "take_profit": 0.801173994,
+          "entry_signals": {
+            "NTI_Direction": -1.0,
+            "MB_Bias": "-1",
+            "IC_Signal": "1",
+            "IC_Regime": "2",
+            "IC_ATR_Normalized": 0.1606522575715929
+          },
+          "entry_validation": {
+            "nti_mb_aligned": "True",
+            "ic_signal_present": "True",
+            "direction_correct": "True",
+            "all_conditions_met": "True"
+          },
+          "price_validation": {
+            "bar_open": 0.80298,
+            "bar_high": 0.80306,
+            "bar_low": 0.80274,
+            "bar_close": 0.80286,
+            "entry_within_bar": "True",
+            "entry_at_close": "True"
+          },
+          "risk_reward": {
+            "sl_distance_pips": 10.0,
+            "tp_distance_pips": 16.9,
+            "risk_reward_ratio": 1.69
+          },
+          "market_context": {
+            "atr_value": 0.1606522575715929,
+            "market_regime": "Trending",
+            "recent_volatility": 0.20811531037784423
+          }
+        },
+        "exit": {
+          "exit_time": "2017-09-20 20:30:00",
+          "exit_price": 0.801173994,
+          "exit_reason": "take_profit_1",
+          "pnl_pips": 0,
+          "pnl_dollars": 420.2891880000057,
+          "trade_duration": {
+            "bars_held": 16,
+            "time_held": "0 days 04:00:00"
+          },
+          "price_validation": {
+            "bar_open": 0.80154,
+            "bar_high": 0.80174,
+            "bar_low": 0.80113,
+            "bar_close": 0.80155,
+            "exit_within_bar": "True"
+          },
+          "tp_validation": {
+            "tp_could_be_hit": "True",
+            "exit_exactly_at_tp": "True",
+            "realistic": false
+          },
+          "realism_checks": {
+            "both_sl_tp_in_bar": false,
+            "impossible_fill": false
+          }
+        },
+        "overall_realism": {
+          "realistic": false,
+          "issues": [
+            "Entry exactly at close price (unrealistic)",
+            "Exit exactly at TP without slippage (unrealistic)"
+          ],
+          "severity": "MODERATE"
+        }
+      },
+      {
+        "trade_number": 5,
+        "entry": {
+          "entry_time": "2017-10-18 14:30:00",
+          "entry_price": 0.78465,
+          "direction": "LONG",
+          "position_size": 200000.0,
+          "stop_loss": 0.78365,
+          "take_profit": 0.7862977649999999,
+          "entry_signals": {
+            "NTI_Direction": 1.0,
+            "MB_Bias": "1",
+            "IC_Signal": "0",
+            "IC_Regime": "1",
+            "IC_ATR_Normalized": 0.05143875093411829
+          },
+          "entry_validation": {
+            "nti_mb_aligned": "True",
+            "ic_signal_present": "False",
+            "direction_correct": "True",
+            "all_conditions_met": "False"
+          },
+          "price_validation": {
+            "bar_open": 0.78474,
+            "bar_high": 0.78476,
+            "bar_low": 0.78458,
+            "bar_close": 0.78465,
+            "entry_within_bar": "True",
+            "entry_at_close": "True"
+          },
+          "risk_reward": {
+            "sl_distance_pips": 10.0,
+            "tp_distance_pips": 16.5,
+            "risk_reward_ratio": 1.65
+          },
+          "market_context": {
+            "atr_value": 0.05143875093411829,
+            "market_regime": "Ranging",
+            "recent_volatility": 0.05634163219085847
+          }
+        },
+        "exit": {
+          "exit_time": "2017-10-18 21:00:00",
+          "exit_price": 0.7862977649999999,
+          "exit_reason": "take_profit_1",
+          "pnl_pips": 0,
+          "pnl_dollars": 447.0374699999935,
+          "trade_duration": {
+            "bars_held": 26,
+            "time_held": "0 days 06:30:00"
+          },
+          "price_validation": {
+            "bar_open": 0.78664,
+            "bar_high": 0.787,
+            "bar_low": 0.78634,
+            "bar_close": 0.78694,
+            "exit_within_bar": "False"
+          },
+          "tp_validation": {
+            "tp_could_be_hit": "True",
+            "exit_exactly_at_tp": "True",
+            "realistic": false
+          },
+          "realism_checks": {
+            "both_sl_tp_in_bar": false,
+            "impossible_fill": false
+          }
+        },
+        "overall_realism": {
+          "realistic": false,
+          "issues": [
+            "Entry conditions not properly met",
+            "Entry exactly at close price (unrealistic)",
+            "Exit exactly at TP without slippage (unrealistic)",
+            "Exit price outside bar range (impossible)"
+          ],
+          "severity": "SEVERE"
+        }
+      },
+      {
+        "trade_number": 6,
+        "entry": {
+          "entry_time": "2017-10-25 04:30:00",
+          "entry_price": 0.77092,
+          "direction": "SHORT",
+          "position_size": 200000.0,
+          "stop_loss": 0.77192,
+          "take_profit": 0.7693010680000001,
+          "entry_signals": {
+            "NTI_Direction": -1.0,
+            "MB_Bias": "-1",
+            "IC_Signal": "1",
+            "IC_Regime": "2",
+            "IC_ATR_Normalized": 0.07115038628470868
+          },
+          "entry_validation": {
+            "nti_mb_aligned": "True",
+            "ic_signal_present": "True",
+            "direction_correct": "True",
+            "all_conditions_met": "True"
+          },
+          "price_validation": {
+            "bar_open": 0.77142,
+            "bar_high": 0.7715,
+            "bar_low": 0.77074,
+            "bar_close": 0.77092,
+            "entry_within_bar": "True",
+            "entry_at_close": "True"
+          },
+          "risk_reward": {
+            "sl_distance_pips": 10.0,
+            "tp_distance_pips": 16.2,
+            "risk_reward_ratio": 1.62
+          },
+          "market_context": {
+            "atr_value": 0.07115038628470868,
+            "market_regime": "Trending",
+            "recent_volatility": 0.06491941329016586
+          }
+        },
+        "exit": {
+          "exit_time": "2017-10-25 12:15:00",
+          "exit_price": 0.7693010680000001,
+          "exit_reason": "take_profit_1",
+          "pnl_pips": 0,
+          "pnl_dollars": 374.00853599999834,
+          "trade_duration": {
+            "bars_held": 31,
+            "time_held": "0 days 07:45:00"
+          },
+          "price_validation": {
+            "bar_open": 0.76946,
+            "bar_high": 0.76965,
+            "bar_low": 0.76916,
+            "bar_close": 0.76955,
+            "exit_within_bar": "True"
+          },
+          "tp_validation": {
+            "tp_could_be_hit": "True",
+            "exit_exactly_at_tp": "True",
+            "realistic": false
+          },
+          "realism_checks": {
+            "both_sl_tp_in_bar": false,
+            "impossible_fill": false
+          }
+        },
+        "overall_realism": {
+          "realistic": false,
+          "issues": [
+            "Entry exactly at close price (unrealistic)",
+            "Exit exactly at TP without slippage (unrealistic)"
+          ],
+          "severity": "MODERATE"
+        }
+      },
+      {
+        "trade_number": 7,
+        "entry": {
+          "entry_time": "2017-11-15 04:15:00",
+          "entry_price": 0.75982,
+          "direction": "SHORT",
+          "position_size": 700000.0,
+          "stop_loss": 0.7602056138418158,
+          "take_profit": 0.7582243780000001,
+          "entry_signals": {
+            "NTI_Direction": -1.0,
+            "MB_Bias": "-1",
+            "IC_Signal": "0",
+            "IC_Regime": "1",
+            "IC_ATR_Normalized": 0.08399016408431181
+          },
+          "entry_validation": {
+            "nti_mb_aligned": "True",
+            "ic_signal_present": "False",
+            "direction_correct": "True",
+            "all_conditions_met": "False"
+          },
+          "price_validation": {
+            "bar_open": 0.75957,
+            "bar_high": 0.76013,
+            "bar_low": 0.75955,
+            "bar_close": 0.75982,
+            "entry_within_bar": "True",
+            "entry_at_close": "True"
+          },
+          "risk_reward": {
+            "sl_distance_pips": 3.9,
+            "tp_distance_pips": 16.0,
+            "risk_reward_ratio": 4.14
+          },
+          "market_context": {
+            "atr_value": 0.08399016408431181,
+            "market_regime": "Ranging",
+            "recent_volatility": 0.0834278870808819
+          }
+        },
+        "exit": {
+          "exit_time": "2017-11-15 06:00:00",
+          "exit_price": 0.7602056138418158,
+          "exit_reason": "stop_loss",
+          "pnl_pips": 0,
+          "pnl_dollars": 1.637108188410025,
+          "trade_duration": {
+            "bars_held": 7,
+            "time_held": "0 days 01:45:00"
+          },
+          "price_validation": {
+            "bar_open": 0.75955,
+            "bar_high": 0.76045,
+            "bar_low": 0.75953,
+            "bar_close": 0.76031,
+            "exit_within_bar": "True"
+          },
+          "sl_validation": {
+            "sl_could_be_hit": "True",
+            "exit_exactly_at_sl": "True",
+            "realistic": false
+          },
+          "realism_checks": {
+            "both_sl_tp_in_bar": false,
+            "impossible_fill": false
+          }
+        },
+        "overall_realism": {
+          "realistic": false,
+          "issues": [
+            "Entry conditions not properly met",
+            "Entry exactly at close price (unrealistic)",
+            "Exit exactly at SL without slippage (unrealistic)"
+          ],
+          "severity": "SEVERE"
+        }
+      },
+      {
+        "trade_number": 8,
+        "entry": {
+          "entry_time": "2017-12-14 18:15:00",
+          "entry_price": 0.76631,
+          "direction": "SHORT",
+          "position_size": 500000.0,
+          "stop_loss": 0.7668330709694289,
+          "take_profit": 0.7647007490000001,
+          "entry_signals": {
+            "NTI_Direction": -1.0,
+            "MB_Bias": "-1",
+            "IC_Signal": "0",
+            "IC_Regime": "1",
+            "IC_ATR_Normalized": 0.06004549325298222
+          },
+          "entry_validation": {
+            "nti_mb_aligned": "True",
+            "ic_signal_present": "False",
+            "direction_correct": "True",
+            "all_conditions_met": "False"
+          },
+          "price_validation": {
+            "bar_open": 0.76611,
+            "bar_high": 0.76637,
+            "bar_low": 0.76605,
+            "bar_close": 0.76631,
+            "entry_within_bar": "True",
+            "entry_at_close": "True"
+          },
+          "risk_reward": {
+            "sl_distance_pips": 5.2,
+            "tp_distance_pips": 16.1,
+            "risk_reward_ratio": 3.08
+          },
+          "market_context": {
+            "atr_value": 0.06004549325298222,
+            "market_regime": "Ranging",
+            "recent_volatility": 0.057717540932475345
+          }
+        },
+        "exit": {
+          "exit_time": "2017-12-14 19:30:00",
+          "exit_price": 0.7668330709694289,
+          "exit_reason": "stop_loss",
+          "pnl_pips": 0,
+          "pnl_dollars": -261.5354847144147,
+          "trade_duration": {
+            "bars_held": 5,
+            "time_held": "0 days 01:15:00"
+          },
+          "price_validation": {
+            "bar_open": 0.76669,
+            "bar_high": 0.76697,
+            "bar_low": 0.76668,
+            "bar_close": 0.76688,
+            "exit_within_bar": "True"
+          },
+          "sl_validation": {
+            "sl_could_be_hit": "True",
+            "exit_exactly_at_sl": "True",
+            "realistic": false
+          },
+          "realism_checks": {
+            "both_sl_tp_in_bar": false,
+            "impossible_fill": false
+          }
+        },
+        "overall_realism": {
+          "realistic": false,
+          "issues": [
+            "Entry conditions not properly met",
+            "Entry exactly at close price (unrealistic)",
+            "Exit exactly at SL without slippage (unrealistic)"
+          ],
+          "severity": "SEVERE"
+        }
+      },
+      {
+        "trade_number": 9,
+        "entry": {
+          "entry_time": "2017-12-25 17:00:00",
+          "entry_price": 0.77147,
+          "direction": "LONG",
+          "position_size": 900000.0,
+          "stop_loss": 0.7711792336952239,
+          "take_profit": 0.773090087,
+          "entry_signals": {
+            "NTI_Direction": 1.0,
+            "MB_Bias": "1",
+            "IC_Signal": "0",
+            "IC_Regime": "1",
+            "IC_ATR_Normalized": 0.05738588478988476
+          },
+          "entry_validation": {
+            "nti_mb_aligned": "True",
+            "ic_signal_present": "False",
+            "direction_correct": "True",
+            "all_conditions_met": "False"
+          },
+          "price_validation": {
+            "bar_open": 0.7712,
+            "bar_high": 0.77162,
+            "bar_low": 0.7712,
+            "bar_close": 0.77147,
+            "entry_within_bar": "True",
+            "entry_at_close": "True"
+          },
+          "risk_reward": {
+            "sl_distance_pips": 2.9,
+            "tp_distance_pips": 16.2,
+            "risk_reward_ratio": 5.57
+          },
+          "market_context": {
+            "atr_value": 0.05738588478988476,
+            "market_regime": "Ranging",
+            "recent_volatility": 0.03614874269251072
+          }
+        },
+        "exit": {
+          "exit_time": "2017-12-26 09:30:00",
+          "exit_price": 0.77226,
+          "exit_reason": "signal_flip",
+          "pnl_pips": 0,
+          "pnl_dollars": 746.3699999999976,
+          "trade_duration": {
+            "bars_held": 66,
+            "time_held": "0 days 16:30:00"
+          },
+          "price_validation": {
+            "bar_open": 0.7722,
+            "bar_high": 0.77238,
+            "bar_low": 0.77208,
+            "bar_close": 0.77226,
+            "exit_within_bar": "True"
+          },
+          "signal_flip_validation": {
+            "signal_actually_flipped": "True",
+            "exit_at_close": "True"
+          },
+          "realism_checks": {
+            "both_sl_tp_in_bar": false,
+            "impossible_fill": false
+          }
+        },
+        "overall_realism": {
+          "realistic": false,
+          "issues": [
+            "Entry conditions not properly met",
+            "Entry exactly at close price (unrealistic)"
+          ],
+          "severity": "MODERATE"
+        }
+      },
+      {
+        "trade_number": 10,
+        "entry": {
+          "entry_time": "2017-12-28 09:15:00",
+          "entry_price": 0.77943,
+          "direction": "LONG",
+          "position_size": 300000.0,
+          "stop_loss": 0.7785076928702361,
+          "take_profit": 0.781066803,
+          "entry_signals": {
+            "NTI_Direction": 1.0,
+            "MB_Bias": "1",
+            "IC_Signal": "0",
+            "IC_Regime": "1",
+            "IC_ATR_Normalized": 0.053557137477008236
+          },
+          "entry_validation": {
+            "nti_mb_aligned": "True",
+            "ic_signal_present": "False",
+            "direction_correct": "True",
+            "all_conditions_met": "False"
+          },
+          "price_validation": {
+            "bar_open": 0.77915,
+            "bar_high": 0.77948,
+            "bar_low": 0.77892,
+            "bar_close": 0.77943,
+            "entry_within_bar": "True",
+            "entry_at_close": "True"
+          },
+          "risk_reward": {
+            "sl_distance_pips": 9.2,
+            "tp_distance_pips": 16.4,
+            "risk_reward_ratio": 1.77
+          },
+          "market_context": {
+            "atr_value": 0.053557137477008236,
+            "market_regime": "Ranging",
+            "recent_volatility": 0.049385070159725035
+          }
+        },
+        "exit": {
+          "exit_time": "2017-12-29 04:30:00",
+          "exit_price": 0.781066803,
+          "exit_reason": "take_profit_1",
+          "pnl_pips": 0,
+          "pnl_dollars": 551.4704910000054,
+          "trade_duration": {
+            "bars_held": 77,
+            "time_held": "0 days 19:15:00"
+          },
+          "price_validation": {
+            "bar_open": 0.78093,
+            "bar_high": 0.7814,
+            "bar_low": 0.7809,
+            "bar_close": 0.78127,
+            "exit_within_bar": "True"
+          },
+          "tp_validation": {
+            "tp_could_be_hit": "True",
+            "exit_exactly_at_tp": "True",
+            "realistic": false
+          },
+          "realism_checks": {
+            "both_sl_tp_in_bar": false,
+            "impossible_fill": false
+          }
+        },
+        "overall_realism": {
+          "realistic": false,
+          "issues": [
+            "Entry conditions not properly met",
+            "Entry exactly at close price (unrealistic)",
+            "Exit exactly at TP without slippage (unrealistic)"
+          ],
+          "severity": "SEVERE"
+        }
+      },
+      {
+        "trade_number": 11,
+        "entry": {
+          "entry_time": "2018-01-21 17:45:00",
+          "entry_price": 0.79966,
+          "direction": "SHORT",
+          "position_size": 300000.0,
+          "stop_loss": 0.80066,
+          "take_profit": 0.797980714,
+          "entry_signals": {
+            "NTI_Direction": -1.0,
+            "MB_Bias": "-1",
+            "IC_Signal": "0",
+            "IC_Regime": "1",
+            "IC_ATR_Normalized": 0.07149873612815687
+          },
+          "entry_validation": {
+            "nti_mb_aligned": "True",
+            "ic_signal_present": "False",
+            "direction_correct": "True",
+            "all_conditions_met": "False"
+          },
+          "price_validation": {
+            "bar_open": 0.79998,
+            "bar_high": 0.80022,
+            "bar_low": 0.79955,
+            "bar_close": 0.79966,
+            "entry_within_bar": "True",
+            "entry_at_close": "True"
+          },
+          "risk_reward": {
+            "sl_distance_pips": 10.0,
+            "tp_distance_pips": 16.8,
+            "risk_reward_ratio": 1.68
+          },
+          "market_context": {
+            "atr_value": 0.07149873612815687,
+            "market_regime": "Ranging",
+            "recent_volatility": 0.06526111312672561
+          }
+        },
+        "exit": {
+          "exit_time": "2018-01-21 21:45:00",
+          "exit_price": 0.7991600000000001,
+          "exit_reason": "trailing_stop",
+          "pnl_pips": 0,
+          "pnl_dollars": 481.50862799999936,
+          "trade_duration": {
+            "bars_held": 16,
+            "time_held": "0 days 04:00:00"
+          },
+          "price_validation": {
+            "bar_open": 0.79892,
+            "bar_high": 0.7995,
+            "bar_low": 0.79892,
+            "bar_close": 0.79943,
+            "exit_within_bar": "True"
+          },
+          "realism_checks": {
+            "both_sl_tp_in_bar": false,
+            "impossible_fill": false
+          }
+        },
+        "overall_realism": {
+          "realistic": false,
+          "issues": [
+            "Entry conditions not properly met",
+            "Entry exactly at close price (unrealistic)"
+          ],
+          "severity": "MODERATE"
+        }
+      },
+      {
+        "trade_number": 12,
+        "entry": {
+          "entry_time": "2018-02-15 06:15:00",
+          "entry_price": 0.79288,
+          "direction": "LONG",
+          "position_size": 1400000.0,
+          "stop_loss": 0.7930952952519542,
+          "take_profit": 0.794545048,
+          "entry_signals": {
+            "NTI_Direction": 1.0,
+            "MB_Bias": "1",
+            "IC_Signal": "0",
+            "IC_Regime": "1",
+            "IC_ATR_Normalized": 0.0929857903738403
+          },
+          "entry_validation": {
+            "nti_mb_aligned": "True",
+            "ic_signal_present": "False",
+            "direction_correct": "True",
+            "all_conditions_met": "False"
+          },
+          "price_validation": {
+            "bar_open": 0.79375,
+            "bar_high": 0.79375,
+            "bar_low": 0.79281,
+            "bar_close": 0.79288,
+            "entry_within_bar": "True",
+            "entry_at_close": "True"
+          },
+          "risk_reward": {
+            "sl_distance_pips": 2.2,
+            "tp_distance_pips": 16.7,
+            "risk_reward_ratio": 7.73
+          },
+          "market_context": {
+            "atr_value": 0.0929857903738403,
+            "market_regime": "Ranging",
+            "recent_volatility": 0.08943253677843088
+          }
+        },
+        "exit": {
+          "exit_time": "2018-02-15 06:30:00",
+          "exit_price": 0.7930952952519542,
+          "exit_reason": "stop_loss",
+          "pnl_pips": 0,
+          "pnl_dollars": 301.4133527358576,
+          "trade_duration": {
+            "bars_held": 1,
+            "time_held": "0 days 00:15:00"
+          },
+          "price_validation": {
+            "bar_open": 0.79286,
+            "bar_high": 0.793,
+            "bar_low": 0.79214,
+            "bar_close": 0.79274,
+            "exit_within_bar": "False"
+          },
+          "sl_validation": {
+            "sl_could_be_hit": "True",
+            "exit_exactly_at_sl": "True",
+            "realistic": false
+          },
+          "realism_checks": {
+            "both_sl_tp_in_bar": false,
+            "impossible_fill": false
+          }
+        },
+        "overall_realism": {
+          "realistic": false,
+          "issues": [
+            "Entry conditions not properly met",
+            "Entry exactly at close price (unrealistic)",
+            "Exit exactly at SL without slippage (unrealistic)",
+            "Exit price outside bar range (impossible)"
+          ],
+          "severity": "SEVERE"
+        }
+      },
+      {
+        "trade_number": 13,
+        "entry": {
+          "entry_time": "2018-02-16 14:00:00",
+          "entry_price": 0.78962,
+          "direction": "SHORT",
+          "position_size": 300000.0,
+          "stop_loss": 0.79062,
+          "take_profit": 0.787961798,
+          "entry_signals": {
+            "NTI_Direction": -1.0,
+            "MB_Bias": "-1",
+            "IC_Signal": "1",
+            "IC_Regime": "2",
+            "IC_ATR_Normalized": 0.10408204448408691
+          },
+          "entry_validation": {
+            "nti_mb_aligned": "True",
+            "ic_signal_present": "True",
+            "direction_correct": "True",
+            "all_conditions_met": "True"
+          },
+          "price_validation": {
+            "bar_open": 0.79006,
+            "bar_high": 0.79024,
+            "bar_low": 0.78923,
+            "bar_close": 0.78962,
+            "entry_within_bar": "True",
+            "entry_at_close": "True"
+          },
+          "risk_reward": {
+            "sl_distance_pips": 10.0,
+            "tp_distance_pips": 16.6,
+            "risk_reward_ratio": 1.66
+          },
+          "market_context": {
+            "atr_value": 0.10408204448408691,
+            "market_regime": "Trending",
+            "recent_volatility": 0.09447970527592858
+          }
+        },
+        "exit": {
+          "exit_time": "2018-02-16 14:45:00",
+          "exit_price": 0.79062,
+          "exit_reason": "stop_loss",
+          "pnl_pips": 0,
+          "pnl_dollars": -300.0000000000003,
+          "trade_duration": {
+            "bars_held": 3,
+            "time_held": "0 days 00:45:00"
+          },
+          "price_validation": {
+            "bar_open": 0.79048,
+            "bar_high": 0.79072,
+            "bar_low": 0.79028,
+            "bar_close": 0.79065,
+            "exit_within_bar": "True"
+          },
+          "sl_validation": {
+            "sl_could_be_hit": "True",
+            "exit_exactly_at_sl": "True",
+            "realistic": false
+          },
+          "realism_checks": {
+            "both_sl_tp_in_bar": false,
+            "impossible_fill": false
+          }
+        },
+        "overall_realism": {
+          "realistic": false,
+          "issues": [
+            "Entry exactly at close price (unrealistic)",
+            "Exit exactly at SL without slippage (unrealistic)"
+          ],
+          "severity": "MODERATE"
+        }
+      },
+      {
+        "trade_number": 14,
+        "entry": {
+          "entry_time": "2018-03-06 02:30:00",
+          "entry_price": 0.77606,
+          "direction": "LONG",
+          "position_size": 500000.0,
+          "stop_loss": 0.7766460883575342,
+          "take_profit": 0.777689726,
+          "entry_signals": {
+            "NTI_Direction": 1.0,
+            "MB_Bias": "1",
+            "IC_Signal": "0",
+            "IC_Regime": "1",
+            "IC_ATR_Normalized": 0.08661197416578954
+          },
+          "entry_validation": {
+            "nti_mb_aligned": "True",
+            "ic_signal_present": "False",
+            "direction_correct": "True",
+            "all_conditions_met": "False"
+          },
+          "price_validation": {
+            "bar_open": 0.77618,
+            "bar_high": 0.77666,
+            "bar_low": 0.77603,
+            "bar_close": 0.77606,
+            "entry_within_bar": "True",
+            "entry_at_close": "True"
+          },
+          "risk_reward": {
+            "sl_distance_pips": 5.9,
+            "tp_distance_pips": 16.3,
+            "risk_reward_ratio": 2.78
+          },
+          "market_context": {
+            "atr_value": 0.08661197416578954,
+            "market_regime": "Ranging",
+            "recent_volatility": 0.08301814793791312
+          }
+        },
+        "exit": {
+          "exit_time": "2018-03-06 02:45:00",
+          "exit_price": 0.7766460883575342,
+          "exit_reason": "stop_loss",
+          "pnl_pips": 0,
+          "pnl_dollars": 293.0441787671323,
+          "trade_duration": {
+            "bars_held": 1,
+            "time_held": "0 days 00:15:00"
+          },
+          "price_validation": {
+            "bar_open": 0.77608,
+            "bar_high": 0.77656,
+            "bar_low": 0.77594,
+            "bar_close": 0.77632,
+            "exit_within_bar": "False"
+          },
+          "sl_validation": {
+            "sl_could_be_hit": "True",
+            "exit_exactly_at_sl": "True",
+            "realistic": false
+          },
+          "realism_checks": {
+            "both_sl_tp_in_bar": false,
+            "impossible_fill": false
+          }
+        },
+        "overall_realism": {
+          "realistic": false,
+          "issues": [
+            "Entry conditions not properly met",
+            "Entry exactly at close price (unrealistic)",
+            "Exit exactly at SL without slippage (unrealistic)",
+            "Exit price outside bar range (impossible)"
+          ],
+          "severity": "SEVERE"
+        }
+      },
+      {
+        "trade_number": 15,
+        "entry": {
+          "entry_time": "2018-04-13 10:15:00",
+          "entry_price": 0.77789,
+          "direction": "LONG",
+          "position_size": 1000000.0,
+          "stop_loss": 0.7782569761412098,
+          "take_profit": 0.779523569,
+          "entry_signals": {
+            "NTI_Direction": 1.0,
+            "MB_Bias": "1",
+            "IC_Signal": "0",
+            "IC_Regime": "1",
+            "IC_ATR_Normalized": 0.08476040265611919
+          },
+          "entry_validation": {
+            "nti_mb_aligned": "True",
+            "ic_signal_present": "False",
+            "direction_correct": "True",
+            "all_conditions_met": "False"
+          },
+          "price_validation": {
+            "bar_open": 0.77805,
+            "bar_high": 0.77838,
+            "bar_low": 0.77774,
+            "bar_close": 0.77789,
+            "entry_within_bar": "True",
+            "entry_at_close": "True"
+          },
+          "risk_reward": {
+            "sl_distance_pips": 3.7,
+            "tp_distance_pips": 16.3,
+            "risk_reward_ratio": 4.45
+          },
+          "market_context": {
+            "atr_value": 0.08476040265611919,
+            "market_regime": "Ranging",
+            "recent_volatility": 0.08084578289538213
+          }
+        },
+        "exit": {
+          "exit_time": "2018-04-13 10:30:00",
+          "exit_price": 0.7782569761412098,
+          "exit_reason": "stop_loss",
+          "pnl_pips": 0,
+          "pnl_dollars": 366.9761412098405,
+          "trade_duration": {
+            "bars_held": 1,
+            "time_held": "0 days 00:15:00"
+          },
+          "price_validation": {
+            "bar_open": 0.77787,
+            "bar_high": 0.77828,
+            "bar_low": 0.77764,
+            "bar_close": 0.77803,
+            "exit_within_bar": "True"
+          },
+          "sl_validation": {
+            "sl_could_be_hit": "True",
+            "exit_exactly_at_sl": "True",
+            "realistic": false
+          },
+          "realism_checks": {
+            "both_sl_tp_in_bar": false,
+            "impossible_fill": false
+          }
+        },
+        "overall_realism": {
+          "realistic": false,
+          "issues": [
+            "Entry conditions not properly met",
+            "Entry exactly at close price (unrealistic)",
+            "Exit exactly at SL without slippage (unrealistic)"
+          ],
+          "severity": "SEVERE"
+        }
+      },
+      {
+        "trade_number": 16,
+        "entry": {
+          "entry_time": "2018-04-18 11:15:00",
+          "entry_price": 0.77862,
+          "direction": "LONG",
+          "position_size": 400000.0,
+          "stop_loss": 0.77762,
+          "take_profit": 0.780255102,
+          "entry_signals": {
+            "NTI_Direction": 1.0,
+            "MB_Bias": "1",
+            "IC_Signal": "1",
+            "IC_Regime": "2",
+            "IC_ATR_Normalized": 0.09422219853026505
+          },
+          "entry_validation": {
+            "nti_mb_aligned": "True",
+            "ic_signal_present": "True",
+            "direction_correct": "True",
+            "all_conditions_met": "True"
+          },
+          "price_validation": {
+            "bar_open": 0.77908,
+            "bar_high": 0.77914,
+            "bar_low": 0.77825,
+            "bar_close": 0.77862,
+            "entry_within_bar": "True",
+            "entry_at_close": "True"
+          },
+          "risk_reward": {
+            "sl_distance_pips": 10.0,
+            "tp_distance_pips": 16.4,
+            "risk_reward_ratio": 1.64
+          },
+          "market_context": {
+            "atr_value": 0.09422219853026505,
+            "market_regime": "Trending",
+            "recent_volatility": 0.08873879237305282
+          }
+        },
+        "exit": {
+          "exit_time": "2018-04-18 21:30:00",
+          "exit_price": 0.77762,
+          "exit_reason": "stop_loss",
+          "pnl_pips": 0,
+          "pnl_dollars": -161.0800000000032,
+          "trade_duration": {
+            "bars_held": 41,
+            "time_held": "0 days 10:15:00"
+          },
+          "price_validation": {
+            "bar_open": 0.77929,
+            "bar_high": 0.77933,
+            "bar_low": 0.7773,
+            "bar_close": 0.7773,
+            "exit_within_bar": "True"
+          },
+          "sl_validation": {
+            "sl_could_be_hit": "True",
+            "exit_exactly_at_sl": "True",
+            "realistic": false
+          },
+          "realism_checks": {
+            "both_sl_tp_in_bar": false,
+            "impossible_fill": false
+          }
+        },
+        "overall_realism": {
+          "realistic": false,
+          "issues": [
+            "Entry exactly at close price (unrealistic)",
+            "Exit exactly at SL without slippage (unrealistic)"
+          ],
+          "severity": "MODERATE"
+        }
+      },
+      {
+        "trade_number": 17,
+        "entry": {
+          "entry_time": "2018-04-30 07:30:00",
+          "entry_price": 0.75397,
+          "direction": "SHORT",
+          "position_size": 400000.0,
+          "stop_loss": 0.75497,
+          "take_profit": 0.752386663,
+          "entry_signals": {
+            "NTI_Direction": -1.0,
+            "MB_Bias": "-1",
+            "IC_Signal": "0",
+            "IC_Regime": "1",
+            "IC_ATR_Normalized": 0.06582733421912806
+          },
+          "entry_validation": {
+            "nti_mb_aligned": "True",
+            "ic_signal_present": "False",
+            "direction_correct": "True",
+            "all_conditions_met": "False"
+          },
+          "price_validation": {
+            "bar_open": 0.75422,
+            "bar_high": 0.7543,
+            "bar_low": 0.7538,
+            "bar_close": 0.75397,
+            "entry_within_bar": "True",
+            "entry_at_close": "True"
+          },
+          "risk_reward": {
+            "sl_distance_pips": 10.0,
+            "tp_distance_pips": 15.8,
+            "risk_reward_ratio": 1.58
+          },
+          "market_context": {
+            "atr_value": 0.06582733421912806,
+            "market_regime": "Ranging",
+            "recent_volatility": 0.06253410805130535
+          }
+        },
+        "exit": {
+          "exit_time": "2018-05-01 02:30:00",
+          "exit_price": 0.75252,
+          "exit_reason": "signal_flip",
+          "pnl_pips": 0,
+          "pnl_dollars": 558.3600000000301,
+          "trade_duration": {
+            "bars_held": 76,
+            "time_held": "0 days 19:00:00"
+          },
+          "price_validation": {
+            "bar_open": 0.75309,
+            "bar_high": 0.75309,
+            "bar_low": 0.7525,
+            "bar_close": 0.75252,
+            "exit_within_bar": "True"
+          },
+          "signal_flip_validation": {
+            "signal_actually_flipped": "True",
+            "exit_at_close": "True"
+          },
+          "realism_checks": {
+            "both_sl_tp_in_bar": false,
+            "impossible_fill": false
+          }
+        },
+        "overall_realism": {
+          "realistic": false,
+          "issues": [
+            "Entry conditions not properly met",
+            "Entry exactly at close price (unrealistic)"
+          ],
+          "severity": "MODERATE"
+        }
+      },
+      {
+        "trade_number": 18,
+        "entry": {
+          "entry_time": "2018-05-07 01:15:00",
+          "entry_price": 0.7516,
+          "direction": "SHORT",
+          "position_size": 400000.0,
+          "stop_loss": 0.7526,
+          "take_profit": 0.75002164,
+          "entry_signals": {
+            "NTI_Direction": -1.0,
+            "MB_Bias": "-1",
+            "IC_Signal": "0",
+            "IC_Regime": "1",
+            "IC_ATR_Normalized": 0.06505758309597337
+          },
+          "entry_validation": {
+            "nti_mb_aligned": "True",
+            "ic_signal_present": "False",
+            "direction_correct": "True",
+            "all_conditions_met": "False"
+          },
+          "price_validation": {
+            "bar_open": 0.7522,
+            "bar_high": 0.75224,
+            "bar_low": 0.75156,
+            "bar_close": 0.7516,
+            "entry_within_bar": "True",
+            "entry_at_close": "True"
+          },
+          "risk_reward": {
+            "sl_distance_pips": 10.0,
+            "tp_distance_pips": 15.8,
+            "risk_reward_ratio": 1.58
+          },
+          "market_context": {
+            "atr_value": 0.06505758309597337,
+            "market_regime": "Ranging",
+            "recent_volatility": 0.06724046441428655
+          }
+        },
+        "exit": {
+          "exit_time": "2018-05-07 08:00:00",
+          "exit_price": 0.75002164,
+          "exit_reason": "take_profit_1",
+          "pnl_pips": 0,
+          "pnl_dollars": 720.0705600000075,
+          "trade_duration": {
+            "bars_held": 27,
+            "time_held": "0 days 06:45:00"
+          },
+          "price_validation": {
+            "bar_open": 0.74946,
+            "bar_high": 0.74967,
+            "bar_low": 0.74929,
+            "bar_close": 0.74937,
+            "exit_within_bar": "False"
+          },
+          "tp_validation": {
+            "tp_could_be_hit": "True",
+            "exit_exactly_at_tp": "True",
+            "realistic": false
+          },
+          "realism_checks": {
+            "both_sl_tp_in_bar": false,
+            "impossible_fill": false
+          }
+        },
+        "overall_realism": {
+          "realistic": false,
+          "issues": [
+            "Entry conditions not properly met",
+            "Entry exactly at close price (unrealistic)",
+            "Exit exactly at TP without slippage (unrealistic)",
+            "Exit price outside bar range (impossible)"
+          ],
+          "severity": "SEVERE"
+        }
+      },
+      {
+        "trade_number": 19,
+        "entry": {
+          "entry_time": "2018-05-29 22:00:00",
+          "entry_price": 0.74842,
+          "direction": "SHORT",
+          "position_size": 400000.0,
+          "stop_loss": 0.74942,
+          "take_profit": 0.746848318,
+          "entry_signals": {
+            "NTI_Direction": -1.0,
+            "MB_Bias": "-1",
+            "IC_Signal": "0",
+            "IC_Regime": "1",
+            "IC_ATR_Normalized": 0.11762484826747414
+          },
+          "entry_validation": {
+            "nti_mb_aligned": "True",
+            "ic_signal_present": "False",
+            "direction_correct": "True",
+            "all_conditions_met": "False"
+          },
+          "price_validation": {
+            "bar_open": 0.74962,
+            "bar_high": 0.74969,
+            "bar_low": 0.74827,
+            "bar_close": 0.74842,
+            "entry_within_bar": "True",
+            "entry_at_close": "True"
+          },
+          "risk_reward": {
+            "sl_distance_pips": 10.0,
+            "tp_distance_pips": 15.7,
+            "risk_reward_ratio": 1.57
+          },
+          "market_context": {
+            "atr_value": 0.11762484826747414,
+            "market_regime": "Ranging",
+            "recent_volatility": 0.09642522324942192
+          }
+        },
+        "exit": {
+          "exit_time": "2018-05-29 23:15:00",
+          "exit_price": 0.74942,
+          "exit_reason": "stop_loss",
+          "pnl_pips": 0,
+          "pnl_dollars": -400.00000000000034,
+          "trade_duration": {
+            "bars_held": 5,
+            "time_held": "0 days 01:15:00"
+          },
+          "price_validation": {
+            "bar_open": 0.74858,
+            "bar_high": 0.7496,
+            "bar_low": 0.74858,
+            "bar_close": 0.74957,
+            "exit_within_bar": "True"
+          },
+          "sl_validation": {
+            "sl_could_be_hit": "True",
+            "exit_exactly_at_sl": "True",
+            "realistic": false
+          },
+          "realism_checks": {
+            "both_sl_tp_in_bar": false,
+            "impossible_fill": false
+          }
+        },
+        "overall_realism": {
+          "realistic": false,
+          "issues": [
+            "Entry conditions not properly met",
+            "Entry exactly at close price (unrealistic)",
+            "Exit exactly at SL without slippage (unrealistic)"
+          ],
+          "severity": "SEVERE"
+        }
+      },
+      {
+        "trade_number": 20,
+        "entry": {
+          "entry_time": "2018-06-11 20:15:00",
+          "entry_price": 0.75864,
+          "direction": "SHORT",
+          "position_size": 400000.0,
+          "stop_loss": 0.75964,
+          "take_profit": 0.757046856,
+          "entry_signals": {
+            "NTI_Direction": -1.0,
+            "MB_Bias": "-1",
+            "IC_Signal": "0",
+            "IC_Regime": "1",
+            "IC_ATR_Normalized": 0.07121628639430859
+          },
+          "entry_validation": {
+            "nti_mb_aligned": "True",
+            "ic_signal_present": "False",
+            "direction_correct": "True",
+            "all_conditions_met": "False"
+          },
+          "price_validation": {
+            "bar_open": 0.75956,
+            "bar_high": 0.75956,
+            "bar_low": 0.75843,
+            "bar_close": 0.75864,
+            "entry_within_bar": "True",
+            "entry_at_close": "True"
+          },
+          "risk_reward": {
+            "sl_distance_pips": 10.0,
+            "tp_distance_pips": 15.9,
+            "risk_reward_ratio": 1.59
+          },
+          "market_context": {
+            "atr_value": 0.07121628639430859,
+            "market_regime": "Ranging",
+            "recent_volatility": 0.04332940800109693
+          }
+        },
+        "exit": {
+          "exit_time": "2018-06-11 21:15:00",
+          "exit_price": 0.75964,
+          "exit_reason": "stop_loss",
+          "pnl_pips": 0,
+          "pnl_dollars": -400.00000000000034,
+          "trade_duration": {
+            "bars_held": 4,
+            "time_held": "0 days 01:00:00"
+          },
+          "price_validation": {
+            "bar_open": 0.75902,
+            "bar_high": 0.75986,
+            "bar_low": 0.75899,
+            "bar_close": 0.75966,
+            "exit_within_bar": "True"
+          },
+          "sl_validation": {
+            "sl_could_be_hit": "True",
+            "exit_exactly_at_sl": "True",
+            "realistic": false
+          },
+          "realism_checks": {
+            "both_sl_tp_in_bar": false,
+            "impossible_fill": false
+          }
+        },
+        "overall_realism": {
+          "realistic": false,
+          "issues": [
+            "Entry conditions not properly met",
+            "Entry exactly at close price (unrealistic)",
+            "Exit exactly at SL without slippage (unrealistic)"
+          ],
+          "severity": "SEVERE"
+        }
+      }
+    ],
+    "Config 2: Scalping": [
+      {
+        "trade_number": 1,
+        "entry": {
+          "entry_time": "2017-09-11 23:00:00",
+          "entry_price": 0.80098,
+          "direction": "SHORT",
+          "position_size": 200000.0,
+          "stop_loss": 0.80148,
+          "take_profit": 0.799297942,
+          "entry_signals": {
+            "NTI_Direction": -1.0,
+            "MB_Bias": "-1",
+            "IC_Signal": "0",
+            "IC_Regime": "1",
+            "IC_ATR_Normalized": 0.06644087314965393
+          },
+          "entry_validation": {
+            "nti_mb_aligned": "True",
+            "ic_signal_present": "False",
+            "direction_correct": "True",
+            "all_conditions_met": "False"
+          },
+          "price_validation": {
+            "bar_open": 0.80106,
+            "bar_high": 0.8014,
+            "bar_low": 0.80097,
+            "bar_close": 0.80098,
+            "entry_within_bar": "True",
+            "entry_at_close": "True"
+          },
+          "risk_reward": {
+            "sl_distance_pips": 5.0,
+            "tp_distance_pips": 16.8,
+            "risk_reward_ratio": 3.36
+          },
+          "market_context": {
+            "atr_value": 0.06644087314965393,
+            "market_regime": "Ranging",
+            "recent_volatility": 0.06783864966058203
+          }
+        },
+        "exit": {
+          "exit_time": "2017-09-12 01:30:00",
+          "exit_price": 0.80148,
+          "exit_reason": "stop_loss",
+          "pnl_pips": 0,
+          "pnl_dollars": -99.99999999998899,
+          "trade_duration": {
+            "bars_held": 10,
+            "time_held": "0 days 02:30:00"
+          },
+          "price_validation": {
+            "bar_open": 0.80147,
+            "bar_high": 0.80179,
+            "bar_low": 0.80125,
+            "bar_close": 0.80176,
+            "exit_within_bar": "True"
+          },
+          "sl_validation": {
+            "sl_could_be_hit": "True",
+            "exit_exactly_at_sl": "True",
+            "realistic": false
+          },
+          "realism_checks": {
+            "both_sl_tp_in_bar": false,
+            "impossible_fill": false
+          }
+        },
+        "overall_realism": {
+          "realistic": false,
+          "issues": [
+            "Entry conditions not properly met",
+            "Entry exactly at close price (unrealistic)",
+            "Exit exactly at SL without slippage (unrealistic)"
+          ],
+          "severity": "SEVERE"
+        }
+      },
+      {
+        "trade_number": 2,
+        "entry": {
+          "entry_time": "2017-10-05 23:45:00",
+          "entry_price": 0.77517,
+          "direction": "SHORT",
+          "position_size": 200000.0,
+          "stop_loss": 0.77567,
+          "take_profit": 0.773542143,
+          "entry_signals": {
+            "NTI_Direction": -1.0,
+            "MB_Bias": "-1",
+            "IC_Signal": "1",
+            "IC_Regime": "2",
+            "IC_ATR_Normalized": 0.1158338410941175
+          },
+          "entry_validation": {
+            "nti_mb_aligned": "True",
+            "ic_signal_present": "True",
+            "direction_correct": "True",
+            "all_conditions_met": "True"
+          },
+          "price_validation": {
+            "bar_open": 0.77532,
+            "bar_high": 0.77564,
+            "bar_low": 0.77512,
+            "bar_close": 0.77517,
+            "entry_within_bar": "True",
+            "entry_at_close": "True"
+          },
+          "risk_reward": {
+            "sl_distance_pips": 5.0,
+            "tp_distance_pips": 16.3,
+            "risk_reward_ratio": 3.26
+          },
+          "market_context": {
+            "atr_value": 0.1158338410941175,
+            "market_regime": "Trending",
+            "recent_volatility": 0.10940921051566577
+          }
+        },
+        "exit": {
+          "exit_time": "2017-10-06 01:30:00",
+          "exit_price": 0.77567,
+          "exit_reason": "stop_loss",
+          "pnl_pips": 0,
+          "pnl_dollars": -99.99999999998899,
+          "trade_duration": {
+            "bars_held": 7,
+            "time_held": "0 days 01:45:00"
+          },
+          "price_validation": {
+            "bar_open": 0.77562,
+            "bar_high": 0.77631,
+            "bar_low": 0.77551,
+            "bar_close": 0.77628,
+            "exit_within_bar": "True"
+          },
+          "sl_validation": {
+            "sl_could_be_hit": "True",
+            "exit_exactly_at_sl": "True",
+            "realistic": false
+          },
+          "realism_checks": {
+            "both_sl_tp_in_bar": false,
+            "impossible_fill": false
+          }
+        },
+        "overall_realism": {
+          "realistic": false,
+          "issues": [
+            "Entry exactly at close price (unrealistic)",
+            "Exit exactly at SL without slippage (unrealistic)"
+          ],
+          "severity": "MODERATE"
+        }
+      },
+      {
+        "trade_number": 3,
+        "entry": {
+          "entry_time": "2017-11-10 06:45:00",
+          "entry_price": 0.76626,
+          "direction": "SHORT",
+          "position_size": 200000.0,
+          "stop_loss": 0.76676,
+          "take_profit": 0.7646508540000001,
+          "entry_signals": {
+            "NTI_Direction": -1.0,
+            "MB_Bias": "-1",
+            "IC_Signal": "0",
+            "IC_Regime": "1",
+            "IC_ATR_Normalized": 0.05431822559518491
+          },
+          "entry_validation": {
+            "nti_mb_aligned": "True",
+            "ic_signal_present": "False",
+            "direction_correct": "True",
+            "all_conditions_met": "False"
+          },
+          "price_validation": {
+            "bar_open": 0.76638,
+            "bar_high": 0.76654,
+            "bar_low": 0.76623,
+            "bar_close": 0.76626,
+            "entry_within_bar": "True",
+            "entry_at_close": "True"
+          },
+          "risk_reward": {
+            "sl_distance_pips": 5.0,
+            "tp_distance_pips": 16.1,
+            "risk_reward_ratio": 3.22
+          },
+          "market_context": {
+            "atr_value": 0.05431822559518491,
+            "market_regime": "Ranging",
+            "recent_volatility": 0.05932748958546559
+          }
+        },
+        "exit": {
+          "exit_time": "2017-11-10 07:45:00",
+          "exit_price": 0.76676,
+          "exit_reason": "stop_loss",
+          "pnl_pips": 0,
+          "pnl_dollars": -99.99999999998899,
+          "trade_duration": {
+            "bars_held": 4,
+            "time_held": "0 days 01:00:00"
+          },
+          "price_validation": {
+            "bar_open": 0.76645,
+            "bar_high": 0.76678,
+            "bar_low": 0.76645,
+            "bar_close": 0.76677,
+            "exit_within_bar": "True"
+          },
+          "sl_validation": {
+            "sl_could_be_hit": "True",
+            "exit_exactly_at_sl": "True",
+            "realistic": false
+          },
+          "realism_checks": {
+            "both_sl_tp_in_bar": false,
+            "impossible_fill": false
+          }
+        },
+        "overall_realism": {
+          "realistic": false,
+          "issues": [
+            "Entry conditions not properly met",
+            "Entry exactly at close price (unrealistic)",
+            "Exit exactly at SL without slippage (unrealistic)"
+          ],
+          "severity": "SEVERE"
+        }
+      },
+      {
+        "trade_number": 4,
+        "entry": {
+          "entry_time": "2018-01-02 00:30:00",
+          "entry_price": 0.78397,
+          "direction": "LONG",
+          "position_size": 300000.0,
+          "stop_loss": 0.78347,
+          "take_profit": 0.785616337,
+          "entry_signals": {
+            "NTI_Direction": 1.0,
+            "MB_Bias": "1",
+            "IC_Signal": "1",
+            "IC_Regime": "2",
+            "IC_ATR_Normalized": 0.05479411803125517
+          },
+          "entry_validation": {
+            "nti_mb_aligned": "True",
+            "ic_signal_present": "True",
+            "direction_correct": "True",
+            "all_conditions_met": "True"
+          },
+          "price_validation": {
+            "bar_open": 0.78402,
+            "bar_high": 0.78402,
+            "bar_low": 0.7837,
+            "bar_close": 0.78397,
+            "entry_within_bar": "True",
+            "entry_at_close": "True"
+          },
+          "risk_reward": {
+            "sl_distance_pips": 5.0,
+            "tp_distance_pips": 16.5,
+            "risk_reward_ratio": 3.29
+          },
+          "market_context": {
+            "atr_value": 0.05479411803125517,
+            "market_regime": "Trending",
+            "recent_volatility": 0.058479904890502574
+          }
+        },
+        "exit": {
+          "exit_time": "2018-01-02 03:00:00",
+          "exit_price": 0.78347,
+          "exit_reason": "stop_loss",
+          "pnl_pips": 0,
+          "pnl_dollars": -65.84999999998178,
+          "trade_duration": {
+            "bars_held": 10,
+            "time_held": "0 days 02:30:00"
+          },
+          "price_validation": {
+            "bar_open": 0.78352,
+            "bar_high": 0.78374,
+            "bar_low": 0.78306,
+            "bar_close": 0.78314,
+            "exit_within_bar": "True"
+          },
+          "sl_validation": {
+            "sl_could_be_hit": "True",
+            "exit_exactly_at_sl": "True",
+            "realistic": false
+          },
+          "realism_checks": {
+            "both_sl_tp_in_bar": false,
+            "impossible_fill": false
+          }
+        },
+        "overall_realism": {
+          "realistic": false,
+          "issues": [
+            "Entry exactly at close price (unrealistic)",
+            "Exit exactly at SL without slippage (unrealistic)"
+          ],
+          "severity": "MODERATE"
+        }
+      },
+      {
+        "trade_number": 5,
+        "entry": {
+          "entry_time": "2018-01-19 04:15:00",
+          "entry_price": 0.8032,
+          "direction": "LONG",
+          "position_size": 300000.0,
+          "stop_loss": 0.8027000000000001,
+          "take_profit": 0.80488672,
+          "entry_signals": {
+            "NTI_Direction": 1.0,
+            "MB_Bias": "1",
+            "IC_Signal": "0",
+            "IC_Regime": "1",
+            "IC_ATR_Normalized": 0.08540986671829887
+          },
+          "entry_validation": {
+            "nti_mb_aligned": "True",
+            "ic_signal_present": "False",
+            "direction_correct": "True",
+            "all_conditions_met": "False"
+          },
+          "price_validation": {
+            "bar_open": 0.80322,
+            "bar_high": 0.80345,
+            "bar_low": 0.8031,
+            "bar_close": 0.8032,
+            "entry_within_bar": "True",
+            "entry_at_close": "True"
+          },
+          "risk_reward": {
+            "sl_distance_pips": 5.0,
+            "tp_distance_pips": 16.9,
+            "risk_reward_ratio": 3.37
+          },
+          "market_context": {
+            "atr_value": 0.08540986671829887,
+            "market_regime": "Ranging",
+            "recent_volatility": 0.08965944231264875
+          }
+        },
+        "exit": {
+          "exit_time": "2018-01-19 04:30:00",
+          "exit_price": 0.8027000000000001,
+          "exit_reason": "stop_loss",
+          "pnl_pips": 0,
+          "pnl_dollars": -149.9999999999835,
+          "trade_duration": {
+            "bars_held": 1,
+            "time_held": "0 days 00:15:00"
+          },
+          "price_validation": {
+            "bar_open": 0.80321,
+            "bar_high": 0.80353,
+            "bar_low": 0.80241,
+            "bar_close": 0.80245,
+            "exit_within_bar": "True"
+          },
+          "sl_validation": {
+            "sl_could_be_hit": "True",
+            "exit_exactly_at_sl": "True",
+            "realistic": false
+          },
+          "realism_checks": {
+            "both_sl_tp_in_bar": false,
+            "impossible_fill": false
+          }
+        },
+        "overall_realism": {
+          "realistic": false,
+          "issues": [
+            "Entry conditions not properly met",
+            "Entry exactly at close price (unrealistic)",
+            "Exit exactly at SL without slippage (unrealistic)"
+          ],
+          "severity": "SEVERE"
+        }
+      },
+      {
+        "trade_number": 6,
+        "entry": {
+          "entry_time": "2018-02-05 22:30:00",
+          "entry_price": 0.7857,
+          "direction": "SHORT",
+          "position_size": 300000.0,
+          "stop_loss": 0.7861999999999999,
+          "take_profit": 0.78405003,
+          "entry_signals": {
+            "NTI_Direction": -1.0,
+            "MB_Bias": "-1",
+            "IC_Signal": "1",
+            "IC_Regime": "2",
+            "IC_ATR_Normalized": 0.14515326440222384
+          },
+          "entry_validation": {
+            "nti_mb_aligned": "True",
+            "ic_signal_present": "True",
+            "direction_correct": "True",
+            "all_conditions_met": "True"
+          },
+          "price_validation": {
+            "bar_open": 0.78728,
+            "bar_high": 0.78742,
+            "bar_low": 0.78564,
+            "bar_close": 0.7857,
+            "entry_within_bar": "True",
+            "entry_at_close": "True"
+          },
+          "risk_reward": {
+            "sl_distance_pips": 5.0,
+            "tp_distance_pips": 16.5,
+            "risk_reward_ratio": 3.3
+          },
+          "market_context": {
+            "atr_value": 0.14515326440222384,
+            "market_regime": "Trending",
+            "recent_volatility": 0.14114163140316077
+          }
+        },
+        "exit": {
+          "exit_time": "2018-02-05 23:45:00",
+          "exit_price": 0.78405003,
+          "exit_reason": "take_profit_1",
+          "pnl_pips": 0,
+          "pnl_dollars": 566.2710899999939,
+          "trade_duration": {
+            "bars_held": 5,
+            "time_held": "0 days 01:15:00"
+          },
+          "price_validation": {
+            "bar_open": 0.78379,
+            "bar_high": 0.78458,
+            "bar_low": 0.78353,
+            "bar_close": 0.78444,
+            "exit_within_bar": "True"
+          },
+          "tp_validation": {
+            "tp_could_be_hit": "True",
+            "exit_exactly_at_tp": "True",
+            "realistic": false
+          },
+          "realism_checks": {
+            "both_sl_tp_in_bar": false,
+            "impossible_fill": false
+          }
+        },
+        "overall_realism": {
+          "realistic": false,
+          "issues": [
+            "Entry exactly at close price (unrealistic)",
+            "Exit exactly at TP without slippage (unrealistic)"
+          ],
+          "severity": "MODERATE"
+        }
+      },
+      {
+        "trade_number": 7,
+        "entry": {
+          "entry_time": "2018-02-06 00:00:00",
+          "entry_price": 0.78566,
+          "direction": "SHORT",
+          "position_size": 300000.0,
+          "stop_loss": 0.78616,
+          "take_profit": 0.784010114,
+          "entry_signals": {
+            "NTI_Direction": -1.0,
+            "MB_Bias": "-1",
+            "IC_Signal": "1",
+            "IC_Regime": "2",
+            "IC_ATR_Normalized": 0.15207751908906822
+          },
+          "entry_validation": {
+            "nti_mb_aligned": "True",
+            "ic_signal_present": "True",
+            "direction_correct": "True",
+            "all_conditions_met": "True"
+          },
+          "price_validation": {
+            "bar_open": 0.78442,
+            "bar_high": 0.78582,
+            "bar_low": 0.78399,
+            "bar_close": 0.78566,
+            "entry_within_bar": "True",
+            "entry_at_close": "True"
+          },
+          "risk_reward": {
+            "sl_distance_pips": 5.0,
+            "tp_distance_pips": 16.5,
+            "risk_reward_ratio": 3.3
+          },
+          "market_context": {
+            "atr_value": 0.15207751908906822,
+            "market_regime": "Trending",
+            "recent_volatility": 0.14432718463201918
+          }
+        },
+        "exit": {
+          "exit_time": "2018-02-06 00:30:00",
+          "exit_price": 0.78616,
+          "exit_reason": "stop_loss",
+          "pnl_pips": 0,
+          "pnl_dollars": -149.9999999999835,
+          "trade_duration": {
+            "bars_held": 2,
+            "time_held": "0 days 00:30:00"
+          },
+          "price_validation": {
+            "bar_open": 0.78603,
+            "bar_high": 0.78685,
+            "bar_low": 0.78592,
+            "bar_close": 0.78683,
+            "exit_within_bar": "True"
+          },
+          "sl_validation": {
+            "sl_could_be_hit": "True",
+            "exit_exactly_at_sl": "True",
+            "realistic": false
+          },
+          "realism_checks": {
+            "both_sl_tp_in_bar": false,
+            "impossible_fill": false
+          }
+        },
+        "overall_realism": {
+          "realistic": false,
+          "issues": [
+            "Entry exactly at close price (unrealistic)",
+            "Exit exactly at SL without slippage (unrealistic)"
+          ],
+          "severity": "MODERATE"
+        }
+      },
+      {
+        "trade_number": 8,
+        "entry": {
+          "entry_time": "2018-02-07 12:30:00",
+          "entry_price": 0.78306,
+          "direction": "SHORT",
+          "position_size": 300000.0,
+          "stop_loss": 0.7835599999999999,
+          "take_profit": 0.781415574,
+          "entry_signals": {
+            "NTI_Direction": -1.0,
+            "MB_Bias": "-1",
+            "IC_Signal": "0",
+            "IC_Regime": "1",
+            "IC_ATR_Normalized": 0.10487010381678215
+          },
+          "entry_validation": {
+            "nti_mb_aligned": "True",
+            "ic_signal_present": "False",
+            "direction_correct": "True",
+            "all_conditions_met": "False"
+          },
+          "price_validation": {
+            "bar_open": 0.78371,
+            "bar_high": 0.78381,
+            "bar_low": 0.78285,
+            "bar_close": 0.78306,
+            "entry_within_bar": "True",
+            "entry_at_close": "True"
+          },
+          "risk_reward": {
+            "sl_distance_pips": 5.0,
+            "tp_distance_pips": 16.4,
+            "risk_reward_ratio": 3.29
+          },
+          "market_context": {
+            "atr_value": 0.10487010381678215,
+            "market_regime": "Ranging",
+            "recent_volatility": 0.11070908480464033
+          }
+        },
+        "exit": {
+          "exit_time": "2018-02-07 18:00:00",
+          "exit_price": 0.781415574,
+          "exit_reason": "take_profit_1",
+          "pnl_pips": 0,
+          "pnl_dollars": 617.0945220000064,
+          "trade_duration": {
+            "bars_held": 22,
+            "time_held": "0 days 05:30:00"
+          },
+          "price_validation": {
+            "bar_open": 0.78119,
+            "bar_high": 0.78169,
+            "bar_low": 0.78119,
+            "bar_close": 0.78153,
+            "exit_within_bar": "True"
+          },
+          "tp_validation": {
+            "tp_could_be_hit": "True",
+            "exit_exactly_at_tp": "True",
+            "realistic": false
+          },
+          "realism_checks": {
+            "both_sl_tp_in_bar": false,
+            "impossible_fill": false
+          }
+        },
+        "overall_realism": {
+          "realistic": false,
+          "issues": [
+            "Entry conditions not properly met",
+            "Entry exactly at close price (unrealistic)",
+            "Exit exactly at TP without slippage (unrealistic)"
+          ],
+          "severity": "SEVERE"
+        }
+      },
+      {
+        "trade_number": 9,
+        "entry": {
+          "entry_time": "2018-02-09 10:00:00",
+          "entry_price": 0.78162,
+          "direction": "LONG",
+          "position_size": 300000.0,
+          "stop_loss": 0.78112,
+          "take_profit": 0.7832614019999999,
+          "entry_signals": {
+            "NTI_Direction": 1.0,
+            "MB_Bias": "1",
+            "IC_Signal": "0",
+            "IC_Regime": "1",
+            "IC_ATR_Normalized": 0.12459682343177049
+          },
+          "entry_validation": {
+            "nti_mb_aligned": "True",
+            "ic_signal_present": "False",
+            "direction_correct": "True",
+            "all_conditions_met": "False"
+          },
+          "price_validation": {
+            "bar_open": 0.78225,
+            "bar_high": 0.78247,
+            "bar_low": 0.78155,
+            "bar_close": 0.78162,
+            "entry_within_bar": "True",
+            "entry_at_close": "True"
+          },
+          "risk_reward": {
+            "sl_distance_pips": 5.0,
+            "tp_distance_pips": 16.4,
+            "risk_reward_ratio": 3.28
+          },
+          "market_context": {
+            "atr_value": 0.12459682343177049,
+            "market_regime": "Ranging",
+            "recent_volatility": 0.12067804077150035
+          }
+        },
+        "exit": {
+          "exit_time": "2018-02-09 10:30:00",
+          "exit_price": 0.78112,
+          "exit_reason": "stop_loss",
+          "pnl_pips": 0,
+          "pnl_dollars": -149.9999999999835,
+          "trade_duration": {
+            "bars_held": 2,
+            "time_held": "0 days 00:30:00"
+          },
+          "price_validation": {
+            "bar_open": 0.78162,
+            "bar_high": 0.78187,
+            "bar_low": 0.78069,
+            "bar_close": 0.78108,
+            "exit_within_bar": "True"
+          },
+          "sl_validation": {
+            "sl_could_be_hit": "True",
+            "exit_exactly_at_sl": "True",
+            "realistic": false
+          },
+          "realism_checks": {
+            "both_sl_tp_in_bar": false,
+            "impossible_fill": false
+          }
+        },
+        "overall_realism": {
+          "realistic": false,
+          "issues": [
+            "Entry conditions not properly met",
+            "Entry exactly at close price (unrealistic)",
+            "Exit exactly at SL without slippage (unrealistic)"
+          ],
+          "severity": "SEVERE"
+        }
+      },
+      {
+        "trade_number": 10,
+        "entry": {
+          "entry_time": "2018-02-12 20:00:00",
+          "entry_price": 0.78578,
+          "direction": "LONG",
+          "position_size": 300000.0,
+          "stop_loss": 0.7852800000000001,
+          "take_profit": 0.7874301380000001,
+          "entry_signals": {
+            "NTI_Direction": 1.0,
+            "MB_Bias": "1",
+            "IC_Signal": "0",
+            "IC_Regime": "1",
+            "IC_ATR_Normalized": 0.07582096699126925
+          },
+          "entry_validation": {
+            "nti_mb_aligned": "True",
+            "ic_signal_present": "False",
+            "direction_correct": "True",
+            "all_conditions_met": "False"
+          },
+          "price_validation": {
+            "bar_open": 0.78538,
+            "bar_high": 0.786,
+            "bar_low": 0.78512,
+            "bar_close": 0.78578,
+            "entry_within_bar": "True",
+            "entry_at_close": "True"
+          },
+          "risk_reward": {
+            "sl_distance_pips": 5.0,
+            "tp_distance_pips": 16.5,
+            "risk_reward_ratio": 3.3
+          },
+          "market_context": {
+            "atr_value": 0.07582096699126925,
+            "market_regime": "Ranging",
+            "recent_volatility": 0.06056267277949682
+          }
+        },
+        "exit": {
+          "exit_time": "2018-02-13 08:00:00",
+          "exit_price": 0.7852800000000001,
+          "exit_reason": "stop_loss",
+          "pnl_pips": 0,
+          "pnl_dollars": 387.5973240000067,
+          "trade_duration": {
+            "bars_held": 48,
+            "time_held": "0 days 12:00:00"
+          },
+          "price_validation": {
+            "bar_open": 0.78615,
+            "bar_high": 0.78615,
+            "bar_low": 0.78475,
+            "bar_close": 0.78475,
+            "exit_within_bar": "True"
+          },
+          "sl_validation": {
+            "sl_could_be_hit": "True",
+            "exit_exactly_at_sl": "True",
+            "realistic": false
+          },
+          "realism_checks": {
+            "both_sl_tp_in_bar": false,
+            "impossible_fill": false
+          }
+        },
+        "overall_realism": {
+          "realistic": false,
+          "issues": [
+            "Entry conditions not properly met",
+            "Entry exactly at close price (unrealistic)",
+            "Exit exactly at SL without slippage (unrealistic)"
+          ],
+          "severity": "SEVERE"
+        }
+      },
+      {
+        "trade_number": 11,
+        "entry": {
+          "entry_time": "2018-02-14 10:30:00",
+          "entry_price": 0.7876,
+          "direction": "SHORT",
+          "position_size": 100000.0,
+          "stop_loss": 0.7861602102143491,
+          "take_profit": 0.78594604,
+          "entry_signals": {
+            "NTI_Direction": -1.0,
+            "MB_Bias": "-1",
+            "IC_Signal": "0",
+            "IC_Regime": "1",
+            "IC_ATR_Normalized": 0.28820208509741324
+          },
+          "entry_validation": {
+            "nti_mb_aligned": "True",
+            "ic_signal_present": "False",
+            "direction_correct": "True",
+            "all_conditions_met": "False"
+          },
+          "price_validation": {
+            "bar_open": 0.78509,
+            "bar_high": 0.78876,
+            "bar_low": 0.78509,
+            "bar_close": 0.7876,
+            "entry_within_bar": "True",
+            "entry_at_close": "True"
+          },
+          "risk_reward": {
+            "sl_distance_pips": 14.4,
+            "tp_distance_pips": 16.5,
+            "risk_reward_ratio": 1.15
+          },
+          "market_context": {
+            "atr_value": 0.28820208509741324,
+            "market_regime": "Ranging",
+            "recent_volatility": 0.2313936510364992
+          }
+        },
+        "exit": {
+          "exit_time": "2018-02-14 10:45:00",
+          "exit_price": 0.7861602102143491,
+          "exit_reason": "stop_loss",
+          "pnl_pips": 0,
+          "pnl_dollars": 143.97897856508467,
+          "trade_duration": {
+            "bars_held": 1,
+            "time_held": "0 days 00:15:00"
+          },
+          "price_validation": {
+            "bar_open": 0.7876,
+            "bar_high": 0.78886,
+            "bar_low": 0.7873,
+            "bar_close": 0.78784,
+            "exit_within_bar": "False"
+          },
+          "sl_validation": {
+            "sl_could_be_hit": "True",
+            "exit_exactly_at_sl": "True",
+            "realistic": false
+          },
+          "realism_checks": {
+            "both_sl_tp_in_bar": false,
+            "impossible_fill": false
+          }
+        },
+        "overall_realism": {
+          "realistic": false,
+          "issues": [
+            "Entry conditions not properly met",
+            "Entry exactly at close price (unrealistic)",
+            "Exit exactly at SL without slippage (unrealistic)",
+            "Exit price outside bar range (impossible)"
+          ],
+          "severity": "SEVERE"
+        }
+      },
+      {
+        "trade_number": 12,
+        "entry": {
+          "entry_time": "2018-03-06 19:00:00",
+          "entry_price": 0.77821,
+          "direction": "SHORT",
+          "position_size": 300000.0,
+          "stop_loss": 0.7787099999999999,
+          "take_profit": 0.776575759,
+          "entry_signals": {
+            "NTI_Direction": -1.0,
+            "MB_Bias": "-1",
+            "IC_Signal": "1",
+            "IC_Regime": "2",
+            "IC_ATR_Normalized": 0.12190790715618913
+          },
+          "entry_validation": {
+            "nti_mb_aligned": "True",
+            "ic_signal_present": "True",
+            "direction_correct": "True",
+            "all_conditions_met": "True"
+          },
+          "price_validation": {
+            "bar_open": 0.77856,
+            "bar_high": 0.77944,
+            "bar_low": 0.77792,
+            "bar_close": 0.77821,
+            "entry_within_bar": "True",
+            "entry_at_close": "True"
+          },
+          "risk_reward": {
+            "sl_distance_pips": 5.0,
+            "tp_distance_pips": 16.3,
+            "risk_reward_ratio": 3.27
+          },
+          "market_context": {
+            "atr_value": 0.12190790715618913,
+            "market_regime": "Trending",
+            "recent_volatility": 0.09992626918738333
+          }
+        },
+        "exit": {
+          "exit_time": "2018-03-06 20:00:00",
+          "exit_price": 0.7787099999999999,
+          "exit_reason": "stop_loss",
+          "pnl_pips": 0,
+          "pnl_dollars": -149.9999999999835,
+          "trade_duration": {
+            "bars_held": 4,
+            "time_held": "0 days 01:00:00"
+          },
+          "price_validation": {
+            "bar_open": 0.77864,
+            "bar_high": 0.77928,
+            "bar_low": 0.77833,
+            "bar_close": 0.77907,
+            "exit_within_bar": "True"
+          },
+          "sl_validation": {
+            "sl_could_be_hit": "True",
+            "exit_exactly_at_sl": "True",
+            "realistic": false
+          },
+          "realism_checks": {
+            "both_sl_tp_in_bar": false,
+            "impossible_fill": false
+          }
+        },
+        "overall_realism": {
+          "realistic": false,
+          "issues": [
+            "Entry exactly at close price (unrealistic)",
+            "Exit exactly at SL without slippage (unrealistic)"
+          ],
+          "severity": "MODERATE"
+        }
+      },
+      {
+        "trade_number": 13,
+        "entry": {
+          "entry_time": "2018-03-14 08:00:00",
+          "entry_price": 0.79107,
+          "direction": "LONG",
+          "position_size": 300000.0,
+          "stop_loss": 0.7905700000000001,
+          "take_profit": 0.7927312470000001,
+          "entry_signals": {
+            "NTI_Direction": 1.0,
+            "MB_Bias": "1",
+            "IC_Signal": "1",
+            "IC_Regime": "2",
+            "IC_ATR_Normalized": 0.08792368890583911
+          },
+          "entry_validation": {
+            "nti_mb_aligned": "True",
+            "ic_signal_present": "True",
+            "direction_correct": "True",
+            "all_conditions_met": "True"
+          },
+          "price_validation": {
+            "bar_open": 0.79015,
+            "bar_high": 0.79125,
+            "bar_low": 0.78992,
+            "bar_close": 0.79107,
+            "entry_within_bar": "True",
+            "entry_at_close": "True"
+          },
+          "risk_reward": {
+            "sl_distance_pips": 5.0,
+            "tp_distance_pips": 16.6,
+            "risk_reward_ratio": 3.32
+          },
+          "market_context": {
+            "atr_value": 0.08792368890583911,
+            "market_regime": "Trending",
+            "recent_volatility": 0.06902941523515534
+          }
+        },
+        "exit": {
+          "exit_time": "2018-03-14 08:15:00",
+          "exit_price": 0.7905700000000001,
+          "exit_reason": "stop_loss",
+          "pnl_pips": 0,
+          "pnl_dollars": -149.9999999999835,
+          "trade_duration": {
+            "bars_held": 1,
+            "time_held": "0 days 00:15:00"
+          },
+          "price_validation": {
+            "bar_open": 0.79109,
+            "bar_high": 0.79131,
+            "bar_low": 0.79005,
+            "bar_close": 0.79028,
+            "exit_within_bar": "True"
+          },
+          "sl_validation": {
+            "sl_could_be_hit": "True",
+            "exit_exactly_at_sl": "True",
+            "realistic": false
+          },
+          "realism_checks": {
+            "both_sl_tp_in_bar": false,
+            "impossible_fill": false
+          }
+        },
+        "overall_realism": {
+          "realistic": false,
+          "issues": [
+            "Entry exactly at close price (unrealistic)",
+            "Exit exactly at SL without slippage (unrealistic)"
+          ],
+          "severity": "MODERATE"
+        }
+      },
+      {
+        "trade_number": 14,
+        "entry": {
+          "entry_time": "2018-03-23 16:15:00",
+          "entry_price": 0.7701,
+          "direction": "SHORT",
+          "position_size": 300000.0,
+          "stop_loss": 0.7706,
+          "take_profit": 0.76848279,
+          "entry_signals": {
+            "NTI_Direction": -1.0,
+            "MB_Bias": "-1",
+            "IC_Signal": "0",
+            "IC_Regime": "1",
+            "IC_ATR_Normalized": 0.0799785785344744
+          },
+          "entry_validation": {
+            "nti_mb_aligned": "True",
+            "ic_signal_present": "False",
+            "direction_correct": "True",
+            "all_conditions_met": "False"
+          },
+          "price_validation": {
+            "bar_open": 0.77027,
+            "bar_high": 0.77028,
+            "bar_low": 0.7701,
+            "bar_close": 0.7701,
+            "entry_within_bar": "True",
+            "entry_at_close": "True"
+          },
+          "risk_reward": {
+            "sl_distance_pips": 5.0,
+            "tp_distance_pips": 16.2,
+            "risk_reward_ratio": 3.23
+          },
+          "market_context": {
+            "atr_value": 0.0799785785344744,
+            "market_regime": "Ranging",
+            "recent_volatility": 0.09652354074659636
+          }
+        },
+        "exit": {
+          "exit_time": "2018-03-25 18:00:00",
+          "exit_price": 0.7706,
+          "exit_reason": "stop_loss",
+          "pnl_pips": 0,
+          "pnl_dollars": -41.09999999998449,
+          "trade_duration": {
+            "bars_held": 7,
+            "time_held": "2 days 01:45:00"
+          },
+          "price_validation": {
+            "bar_open": 0.77017,
+            "bar_high": 0.77078,
+            "bar_low": 0.7701,
+            "bar_close": 0.77077,
+            "exit_within_bar": "True"
+          },
+          "sl_validation": {
+            "sl_could_be_hit": "True",
+            "exit_exactly_at_sl": "True",
+            "realistic": false
+          },
+          "realism_checks": {
+            "both_sl_tp_in_bar": false,
+            "impossible_fill": false
+          }
+        },
+        "overall_realism": {
+          "realistic": false,
+          "issues": [
+            "Entry conditions not properly met",
+            "Entry exactly at close price (unrealistic)",
+            "Exit exactly at SL without slippage (unrealistic)"
+          ],
+          "severity": "SEVERE"
+        }
+      },
+      {
+        "trade_number": 15,
+        "entry": {
+          "entry_time": "2018-03-27 16:15:00",
+          "entry_price": 0.76761,
+          "direction": "SHORT",
+          "position_size": 300000.0,
+          "stop_loss": 0.76811,
+          "take_profit": 0.765998019,
+          "entry_signals": {
+            "NTI_Direction": -1.0,
+            "MB_Bias": "-1",
+            "IC_Signal": "1",
+            "IC_Regime": "2",
+            "IC_ATR_Normalized": 0.07121291825961973
+          },
+          "entry_validation": {
+            "nti_mb_aligned": "True",
+            "ic_signal_present": "True",
+            "direction_correct": "True",
+            "all_conditions_met": "True"
+          },
+          "price_validation": {
+            "bar_open": 0.76753,
+            "bar_high": 0.76778,
+            "bar_low": 0.76753,
+            "bar_close": 0.76761,
+            "entry_within_bar": "True",
+            "entry_at_close": "True"
+          },
+          "risk_reward": {
+            "sl_distance_pips": 5.0,
+            "tp_distance_pips": 16.1,
+            "risk_reward_ratio": 3.22
+          },
+          "market_context": {
+            "atr_value": 0.07121291825961973,
+            "market_regime": "Trending",
+            "recent_volatility": 0.0832299078603342
+          }
+        },
+        "exit": {
+          "exit_time": "2018-03-27 17:30:00",
+          "exit_price": 0.76811,
+          "exit_reason": "stop_loss",
+          "pnl_pips": 0,
+          "pnl_dollars": -149.9999999999835,
+          "trade_duration": {
+            "bars_held": 5,
+            "time_held": "0 days 01:15:00"
+          },
+          "price_validation": {
+            "bar_open": 0.76796,
+            "bar_high": 0.76843,
+            "bar_low": 0.76787,
+            "bar_close": 0.76818,
+            "exit_within_bar": "True"
+          },
+          "sl_validation": {
+            "sl_could_be_hit": "True",
+            "exit_exactly_at_sl": "True",
+            "realistic": false
+          },
+          "realism_checks": {
+            "both_sl_tp_in_bar": false,
+            "impossible_fill": false
+          }
+        },
+        "overall_realism": {
+          "realistic": false,
+          "issues": [
+            "Entry exactly at close price (unrealistic)",
+            "Exit exactly at SL without slippage (unrealistic)"
+          ],
+          "severity": "MODERATE"
+        }
+      },
+      {
+        "trade_number": 16,
+        "entry": {
+          "entry_time": "2018-05-07 11:00:00",
+          "entry_price": 0.75238,
+          "direction": "SHORT",
+          "position_size": 200000.0,
+          "stop_loss": 0.7516359602000424,
+          "take_profit": 0.7508000020000001,
+          "entry_signals": {
+            "NTI_Direction": -1.0,
+            "MB_Bias": "-1",
+            "IC_Signal": "0",
+            "IC_Regime": "1",
+            "IC_ATR_Normalized": 0.09530695155522567
+          },
+          "entry_validation": {
+            "nti_mb_aligned": "True",
+            "ic_signal_present": "False",
+            "direction_correct": "True",
+            "all_conditions_met": "False"
+          },
+          "price_validation": {
+            "bar_open": 0.75202,
+            "bar_high": 0.75261,
+            "bar_low": 0.75164,
+            "bar_close": 0.75238,
+            "entry_within_bar": "True",
+            "entry_at_close": "True"
+          },
+          "risk_reward": {
+            "sl_distance_pips": 7.4,
+            "tp_distance_pips": 15.8,
+            "risk_reward_ratio": 2.12
+          },
+          "market_context": {
+            "atr_value": 0.09530695155522567,
+            "market_regime": "Ranging",
+            "recent_volatility": 0.08039343698698267
+          }
+        },
+        "exit": {
+          "exit_time": "2018-05-07 11:15:00",
+          "exit_price": 0.7516359602000424,
+          "exit_reason": "stop_loss",
+          "pnl_pips": 0,
+          "pnl_dollars": 148.80795999152596,
+          "trade_duration": {
+            "bars_held": 1,
+            "time_held": "0 days 00:15:00"
+          },
+          "price_validation": {
+            "bar_open": 0.75239,
+            "bar_high": 0.75249,
+            "bar_low": 0.75185,
+            "bar_close": 0.75205,
+            "exit_within_bar": "False"
+          },
+          "sl_validation": {
+            "sl_could_be_hit": "True",
+            "exit_exactly_at_sl": "True",
+            "realistic": false
+          },
+          "realism_checks": {
+            "both_sl_tp_in_bar": false,
+            "impossible_fill": false
+          }
+        },
+        "overall_realism": {
+          "realistic": false,
+          "issues": [
+            "Entry conditions not properly met",
+            "Entry exactly at close price (unrealistic)",
+            "Exit exactly at SL without slippage (unrealistic)",
+            "Exit price outside bar range (impossible)"
+          ],
+          "severity": "SEVERE"
+        }
+      },
+      {
+        "trade_number": 17,
+        "entry": {
+          "entry_time": "2018-05-08 11:00:00",
+          "entry_price": 0.7442,
+          "direction": "SHORT",
+          "position_size": 400000.0,
+          "stop_loss": 0.7446999999999999,
+          "take_profit": 0.74263718,
+          "entry_signals": {
+            "NTI_Direction": -1.0,
+            "MB_Bias": "-1",
+            "IC_Signal": "1",
+            "IC_Regime": "2",
+            "IC_ATR_Normalized": 0.11337798297732617
+          },
+          "entry_validation": {
+            "nti_mb_aligned": "True",
+            "ic_signal_present": "True",
+            "direction_correct": "True",
+            "all_conditions_met": "True"
+          },
+          "price_validation": {
+            "bar_open": 0.74473,
+            "bar_high": 0.74499,
+            "bar_low": 0.74336,
+            "bar_close": 0.7442,
+            "entry_within_bar": "True",
+            "entry_at_close": "True"
+          },
+          "risk_reward": {
+            "sl_distance_pips": 5.0,
+            "tp_distance_pips": 15.6,
+            "risk_reward_ratio": 3.13
+          },
+          "market_context": {
+            "atr_value": 0.11337798297732617,
+            "market_regime": "Trending",
+            "recent_volatility": 0.09575481296092367
+          }
+        },
+        "exit": {
+          "exit_time": "2018-05-08 12:00:00",
+          "exit_price": 0.7446999999999999,
+          "exit_reason": "stop_loss",
+          "pnl_pips": 0,
+          "pnl_dollars": -199.99999999997797,
+          "trade_duration": {
+            "bars_held": 4,
+            "time_held": "0 days 01:00:00"
+          },
+          "price_validation": {
+            "bar_open": 0.74439,
+            "bar_high": 0.74581,
+            "bar_low": 0.74436,
+            "bar_close": 0.74581,
+            "exit_within_bar": "True"
+          },
+          "sl_validation": {
+            "sl_could_be_hit": "True",
+            "exit_exactly_at_sl": "True",
+            "realistic": false
+          },
+          "realism_checks": {
+            "both_sl_tp_in_bar": false,
+            "impossible_fill": false
+          }
+        },
+        "overall_realism": {
+          "realistic": false,
+          "issues": [
+            "Entry exactly at close price (unrealistic)",
+            "Exit exactly at SL without slippage (unrealistic)"
+          ],
+          "severity": "MODERATE"
+        }
+      },
+      {
+        "trade_number": 18,
+        "entry": {
+          "entry_time": "2018-05-22 04:45:00",
+          "entry_price": 0.75965,
+          "direction": "LONG",
+          "position_size": 400000.0,
+          "stop_loss": 0.7591500000000001,
+          "take_profit": 0.761245265,
+          "entry_signals": {
+            "NTI_Direction": 1.0,
+            "MB_Bias": "1",
+            "IC_Signal": "0",
+            "IC_Regime": "1",
+            "IC_ATR_Normalized": 0.08518622061650191
+          },
+          "entry_validation": {
+            "nti_mb_aligned": "True",
+            "ic_signal_present": "False",
+            "direction_correct": "True",
+            "all_conditions_met": "False"
+          },
+          "price_validation": {
+            "bar_open": 0.75933,
+            "bar_high": 0.75974,
+            "bar_low": 0.75921,
+            "bar_close": 0.75965,
+            "entry_within_bar": "True",
+            "entry_at_close": "True"
+          },
+          "risk_reward": {
+            "sl_distance_pips": 5.0,
+            "tp_distance_pips": 16.0,
+            "risk_reward_ratio": 3.19
+          },
+          "market_context": {
+            "atr_value": 0.08518622061650191,
+            "market_regime": "Ranging",
+            "recent_volatility": 0.08938045570641813
+          }
+        },
+        "exit": {
+          "exit_time": "2018-05-22 06:30:00",
+          "exit_price": 0.7591500000000001,
+          "exit_reason": "stop_loss",
+          "pnl_pips": 0,
+          "pnl_dollars": -199.99999999997797,
+          "trade_duration": {
+            "bars_held": 7,
+            "time_held": "0 days 01:45:00"
+          },
+          "price_validation": {
+            "bar_open": 0.75926,
+            "bar_high": 0.75933,
+            "bar_low": 0.75902,
+            "bar_close": 0.75903,
+            "exit_within_bar": "True"
+          },
+          "sl_validation": {
+            "sl_could_be_hit": "True",
+            "exit_exactly_at_sl": "True",
+            "realistic": false
+          },
+          "realism_checks": {
+            "both_sl_tp_in_bar": false,
+            "impossible_fill": false
+          }
+        },
+        "overall_realism": {
+          "realistic": false,
+          "issues": [
+            "Entry conditions not properly met",
+            "Entry exactly at close price (unrealistic)",
+            "Exit exactly at SL without slippage (unrealistic)"
+          ],
+          "severity": "SEVERE"
+        }
+      },
+      {
+        "trade_number": 19,
+        "entry": {
+          "entry_time": "2018-05-22 22:00:00",
+          "entry_price": 0.75586,
+          "direction": "SHORT",
+          "position_size": 400000.0,
+          "stop_loss": 0.7563599999999999,
+          "take_profit": 0.754272694,
+          "entry_signals": {
+            "NTI_Direction": -1.0,
+            "MB_Bias": "-1",
+            "IC_Signal": "0",
+            "IC_Regime": "1",
+            "IC_ATR_Normalized": 0.10912450649754965
+          },
+          "entry_validation": {
+            "nti_mb_aligned": "True",
+            "ic_signal_present": "False",
+            "direction_correct": "True",
+            "all_conditions_met": "False"
+          },
+          "price_validation": {
+            "bar_open": 0.75567,
+            "bar_high": 0.7559,
+            "bar_low": 0.75522,
+            "bar_close": 0.75586,
+            "entry_within_bar": "True",
+            "entry_at_close": "True"
+          },
+          "risk_reward": {
+            "sl_distance_pips": 5.0,
+            "tp_distance_pips": 15.9,
+            "risk_reward_ratio": 3.17
+          },
+          "market_context": {
+            "atr_value": 0.10912450649754965,
+            "market_regime": "Ranging",
+            "recent_volatility": 0.08378104999203384
+          }
+        },
+        "exit": {
+          "exit_time": "2018-05-22 23:15:00",
+          "exit_price": 0.754272694,
+          "exit_reason": "take_profit_1",
+          "pnl_pips": 0,
+          "pnl_dollars": 702.4931760000048,
+          "trade_duration": {
+            "bars_held": 5,
+            "time_held": "0 days 01:15:00"
+          },
+          "price_validation": {
+            "bar_open": 0.75398,
+            "bar_high": 0.7543,
+            "bar_low": 0.75387,
+            "bar_close": 0.75426,
+            "exit_within_bar": "True"
+          },
+          "tp_validation": {
+            "tp_could_be_hit": "True",
+            "exit_exactly_at_tp": "True",
+            "realistic": false
+          },
+          "realism_checks": {
+            "both_sl_tp_in_bar": false,
+            "impossible_fill": false
+          }
+        },
+        "overall_realism": {
+          "realistic": false,
+          "issues": [
+            "Entry conditions not properly met",
+            "Entry exactly at close price (unrealistic)",
+            "Exit exactly at TP without slippage (unrealistic)"
+          ],
+          "severity": "SEVERE"
+        }
+      },
+      {
+        "trade_number": 20,
+        "entry": {
+          "entry_time": "2018-06-05 13:15:00",
+          "entry_price": 0.76204,
+          "direction": "SHORT",
+          "position_size": 500000.0,
+          "stop_loss": 0.7624264994466844,
+          "take_profit": 0.760439716,
+          "entry_signals": {
+            "NTI_Direction": -1.0,
+            "MB_Bias": "-1",
+            "IC_Signal": "0",
+            "IC_Regime": "1",
+            "IC_ATR_Normalized": 0.09839681842488052
+          },
+          "entry_validation": {
+            "nti_mb_aligned": "True",
+            "ic_signal_present": "False",
+            "direction_correct": "True",
+            "all_conditions_met": "False"
+          },
+          "price_validation": {
+            "bar_open": 0.76234,
+            "bar_high": 0.76242,
+            "bar_low": 0.76186,
+            "bar_close": 0.76204,
+            "entry_within_bar": "True",
+            "entry_at_close": "True"
+          },
+          "risk_reward": {
+            "sl_distance_pips": 3.9,
+            "tp_distance_pips": 16.0,
+            "risk_reward_ratio": 4.14
+          },
+          "market_context": {
+            "atr_value": 0.09839681842488052,
+            "market_regime": "Ranging",
+            "recent_volatility": 0.09976062658227478
+          }
+        },
+        "exit": {
+          "exit_time": "2018-06-05 19:15:00",
+          "exit_price": 0.7624264994466844,
+          "exit_reason": "stop_loss",
+          "pnl_pips": 0,
+          "pnl_dollars": -81.6273146392521,
+          "trade_duration": {
+            "bars_held": 24,
+            "time_held": "0 days 06:00:00"
+          },
+          "price_validation": {
+            "bar_open": 0.76199,
+            "bar_high": 0.76277,
+            "bar_low": 0.76168,
+            "bar_close": 0.76256,
+            "exit_within_bar": "True"
+          },
+          "sl_validation": {
+            "sl_could_be_hit": "True",
+            "exit_exactly_at_sl": "True",
+            "realistic": false
+          },
+          "realism_checks": {
+            "both_sl_tp_in_bar": false,
+            "impossible_fill": false
+          }
+        },
+        "overall_realism": {
+          "realistic": false,
+          "issues": [
+            "Entry conditions not properly met",
+            "Entry exactly at close price (unrealistic)",
+            "Exit exactly at SL without slippage (unrealistic)"
+          ],
+          "severity": "SEVERE"
+        }
+      }
+    ]
+  },
+  "common_issues": {
+    "Entry exactly at close price (unrealistic)": 40,
+    "Exit exactly at SL without slippage (unrealistic)": 28,
+    "Exit exactly at TP without slippage (unrealistic)": 9,
+    "Entry conditions not properly met": 26,
+    "Exit price outside bar range (impossible)": 6
+  }
+}
