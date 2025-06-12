@@ -1,0 +1,403 @@
+{
+  "verification_date": "2025-06-12T15:53:37.662686",
+  "currency": "AUDUSD",
+  "total_trades_analyzed": 20,
+  "valid_trades": 1,
+  "validity_rate": 5.0,
+  "check_statistics": {
+    "entry_signals_valid": {
+      "passed": 20,
+      "total": 20
+    },
+    "no_lookahead_entry": {
+      "passed": 16,
+      "total": 20
+    },
+    "entry_price_valid": {
+      "passed": 20,
+      "total": 20
+    },
+    "position_size_valid": {
+      "passed": 1,
+      "total": 20
+    },
+    "exit_price_valid": {
+      "passed": 19,
+      "total": 20
+    },
+    "exit_logic_valid": {
+      "passed": 20,
+      "total": 20
+    },
+    "no_suspicious_exit": {
+      "passed": 19,
+      "total": 20
+    },
+    "clear_exit_path": {
+      "passed": 20,
+      "total": 20
+    }
+  },
+  "individual_verifications": [
+    {
+      "trade_number": "65",
+      "entry_time": "2023-01-16 04:30:00",
+      "exit_time": "2023-01-16 21:00:00",
+      "direction": "short",
+      "pnl": -83.18000000000424,
+      "checks": {
+        "entry_signals_valid": true,
+        "no_lookahead_entry": true,
+        "entry_price_valid": "True",
+        "position_size_valid": "True",
+        "exit_price_valid": "True",
+        "exit_logic_valid": "True",
+        "no_suspicious_exit": true,
+        "clear_exit_path": true
+      },
+      "verdict": "VALID"
+    },
+    {
+      "trade_number": "268",
+      "entry_time": "2023-03-24 07:45:00",
+      "exit_time": "2023-03-24 13:30:00",
+      "direction": "short",
+      "pnl": -300.0000000000003,
+      "checks": {
+        "entry_signals_valid": true,
+        "no_lookahead_entry": true,
+        "entry_price_valid": "True",
+        "position_size_valid": "False",
+        "exit_price_valid": "True",
+        "exit_logic_valid": "True",
+        "no_suspicious_exit": true,
+        "clear_exit_path": true
+      },
+      "verdict": "SUSPICIOUS"
+    },
+    {
+      "trade_number": "415",
+      "entry_time": "2023-05-29 23:45:00",
+      "exit_time": "2023-05-30 02:45:00",
+      "direction": "short",
+      "pnl": -108.93000000000154,
+      "checks": {
+        "entry_signals_valid": true,
+        "no_lookahead_entry": true,
+        "entry_price_valid": "True",
+        "position_size_valid": "False",
+        "exit_price_valid": "True",
+        "exit_logic_valid": "True",
+        "no_suspicious_exit": true,
+        "clear_exit_path": true
+      },
+      "verdict": "SUSPICIOUS"
+    },
+    {
+      "trade_number": "481",
+      "entry_time": "2023-06-21 15:00:00",
+      "exit_time": "2023-06-21 17:15:00",
+      "direction": "long",
+      "pnl": -400.00000000000034,
+      "checks": {
+        "entry_signals_valid": true,
+        "no_lookahead_entry": true,
+        "entry_price_valid": "True",
+        "position_size_valid": "False",
+        "exit_price_valid": "True",
+        "exit_logic_valid": "True",
+        "no_suspicious_exit": true,
+        "clear_exit_path": true
+      },
+      "verdict": "SUSPICIOUS"
+    },
+    {
+      "trade_number": "671",
+      "entry_time": "2023-08-21 14:45:00",
+      "exit_time": "2023-08-21 21:00:00",
+      "direction": "long",
+      "pnl": -400.00000000000034,
+      "checks": {
+        "entry_signals_valid": true,
+        "no_lookahead_entry": false,
+        "entry_price_valid": "True",
+        "position_size_valid": "False",
+        "exit_price_valid": "True",
+        "exit_logic_valid": "True",
+        "no_suspicious_exit": true,
+        "clear_exit_path": true
+      },
+      "verdict": "SUSPICIOUS"
+    },
+    {
+      "trade_number": "690",
+      "entry_time": "2023-08-28 03:15:00",
+      "exit_time": "2023-08-28 03:30:00",
+      "direction": "long",
+      "pnl": 477.4754403829018,
+      "checks": {
+        "entry_signals_valid": true,
+        "no_lookahead_entry": true,
+        "entry_price_valid": "True",
+        "position_size_valid": "False",
+        "exit_price_valid": "False",
+        "exit_logic_valid": "True",
+        "no_suspicious_exit": true,
+        "clear_exit_path": true
+      },
+      "verdict": "SUSPICIOUS"
+    },
+    {
+      "trade_number": "746",
+      "entry_time": "2023-09-20 23:15:00",
+      "exit_time": "2023-09-21 08:45:00",
+      "direction": "short",
+      "pnl": 818.0259450000217,
+      "checks": {
+        "entry_signals_valid": true,
+        "no_lookahead_entry": false,
+        "entry_price_valid": "True",
+        "position_size_valid": "False",
+        "exit_price_valid": "True",
+        "exit_logic_valid": "True",
+        "no_suspicious_exit": true,
+        "clear_exit_path": true
+      },
+      "verdict": "SUSPICIOUS"
+    },
+    {
+      "trade_number": "860",
+      "entry_time": "2023-10-26 04:30:00",
+      "exit_time": "2023-10-26 07:45:00",
+      "direction": "long",
+      "pnl": -600.0000000000006,
+      "checks": {
+        "entry_signals_valid": true,
+        "no_lookahead_entry": true,
+        "entry_price_valid": "True",
+        "position_size_valid": "False",
+        "exit_price_valid": "True",
+        "exit_logic_valid": "True",
+        "no_suspicious_exit": true,
+        "clear_exit_path": true
+      },
+      "verdict": "SUSPICIOUS"
+    },
+    {
+      "trade_number": "1007",
+      "entry_time": "2023-12-27 21:15:00",
+      "exit_time": "2023-12-27 21:30:00",
+      "direction": "long",
+      "pnl": -700.0000000000006,
+      "checks": {
+        "entry_signals_valid": true,
+        "no_lookahead_entry": true,
+        "entry_price_valid": "True",
+        "position_size_valid": "False",
+        "exit_price_valid": "True",
+        "exit_logic_valid": "True",
+        "no_suspicious_exit": true,
+        "clear_exit_path": true
+      },
+      "verdict": "SUSPICIOUS"
+    },
+    {
+      "trade_number": "1020",
+      "entry_time": "2023-12-29 14:30:00",
+      "exit_time": "2023-12-29 16:00:00",
+      "direction": "long",
+      "pnl": 1396.7101394624206,
+      "checks": {
+        "entry_signals_valid": true,
+        "no_lookahead_entry": false,
+        "entry_price_valid": "True",
+        "position_size_valid": "False",
+        "exit_price_valid": "True",
+        "exit_logic_valid": "True",
+        "no_suspicious_exit": true,
+        "clear_exit_path": true
+      },
+      "verdict": "SUSPICIOUS"
+    },
+    {
+      "trade_number": "1099",
+      "entry_time": "2024-01-31 09:00:00",
+      "exit_time": "2024-01-31 11:30:00",
+      "direction": "long",
+      "pnl": 1076.4672839999919,
+      "checks": {
+        "entry_signals_valid": true,
+        "no_lookahead_entry": true,
+        "entry_price_valid": "True",
+        "position_size_valid": "False",
+        "exit_price_valid": "True",
+        "exit_logic_valid": "True",
+        "no_suspicious_exit": true,
+        "clear_exit_path": true
+      },
+      "verdict": "SUSPICIOUS"
+    },
+    {
+      "trade_number": "1252",
+      "entry_time": "2024-04-04 08:15:00",
+      "exit_time": "2024-04-04 09:15:00",
+      "direction": "long",
+      "pnl": 1850.7023699999768,
+      "checks": {
+        "entry_signals_valid": true,
+        "no_lookahead_entry": true,
+        "entry_price_valid": "True",
+        "position_size_valid": "False",
+        "exit_price_valid": "True",
+        "exit_logic_valid": "True",
+        "no_suspicious_exit": true,
+        "clear_exit_path": true
+      },
+      "verdict": "SUSPICIOUS"
+    },
+    {
+      "trade_number": "1393",
+      "entry_time": "2024-05-28 10:15:00",
+      "exit_time": "2024-05-28 11:15:00",
+      "direction": "long",
+      "pnl": 1652.0383106833747,
+      "checks": {
+        "entry_signals_valid": true,
+        "no_lookahead_entry": true,
+        "entry_price_valid": "True",
+        "position_size_valid": "False",
+        "exit_price_valid": "True",
+        "exit_logic_valid": "True",
+        "no_suspicious_exit": true,
+        "clear_exit_path": true
+      },
+      "verdict": "SUSPICIOUS"
+    },
+    {
+      "trade_number": "1434",
+      "entry_time": "2024-06-12 14:45:00",
+      "exit_time": "2024-06-12 15:15:00",
+      "direction": "long",
+      "pnl": -1400.0000000000011,
+      "checks": {
+        "entry_signals_valid": true,
+        "no_lookahead_entry": true,
+        "entry_price_valid": "True",
+        "position_size_valid": "False",
+        "exit_price_valid": "True",
+        "exit_logic_valid": "True",
+        "no_suspicious_exit": true,
+        "clear_exit_path": true
+      },
+      "verdict": "SUSPICIOUS"
+    },
+    {
+      "trade_number": "1537",
+      "entry_time": "2024-08-05 20:45:00",
+      "exit_time": "2024-08-05 21:15:00",
+      "direction": "long",
+      "pnl": -1500.0000000000014,
+      "checks": {
+        "entry_signals_valid": true,
+        "no_lookahead_entry": true,
+        "entry_price_valid": "True",
+        "position_size_valid": "False",
+        "exit_price_valid": "True",
+        "exit_logic_valid": "True",
+        "no_suspicious_exit": true,
+        "clear_exit_path": true
+      },
+      "verdict": "SUSPICIOUS"
+    },
+    {
+      "trade_number": "1679",
+      "entry_time": "2024-09-25 22:30:00",
+      "exit_time": "2024-09-25 22:45:00",
+      "direction": "short",
+      "pnl": 1613.1852859725404,
+      "checks": {
+        "entry_signals_valid": true,
+        "no_lookahead_entry": false,
+        "entry_price_valid": "True",
+        "position_size_valid": "False",
+        "exit_price_valid": "True",
+        "exit_logic_valid": "True",
+        "no_suspicious_exit": false,
+        "clear_exit_path": true
+      },
+      "verdict": "SUSPICIOUS"
+    },
+    {
+      "trade_number": "1827",
+      "entry_time": "2024-11-25 11:45:00",
+      "exit_time": "2024-11-25 13:45:00",
+      "direction": "short",
+      "pnl": -1900.0000000000016,
+      "checks": {
+        "entry_signals_valid": true,
+        "no_lookahead_entry": true,
+        "entry_price_valid": "True",
+        "position_size_valid": "False",
+        "exit_price_valid": "True",
+        "exit_logic_valid": "True",
+        "no_suspicious_exit": true,
+        "clear_exit_path": true
+      },
+      "verdict": "SUSPICIOUS"
+    },
+    {
+      "trade_number": "1858",
+      "entry_time": "2024-12-04 08:15:00",
+      "exit_time": "2024-12-04 10:00:00",
+      "direction": "short",
+      "pnl": -2000.0000000000018,
+      "checks": {
+        "entry_signals_valid": true,
+        "no_lookahead_entry": true,
+        "entry_price_valid": "True",
+        "position_size_valid": "False",
+        "exit_price_valid": "True",
+        "exit_logic_valid": "True",
+        "no_suspicious_exit": true,
+        "clear_exit_path": true
+      },
+      "verdict": "SUSPICIOUS"
+    },
+    {
+      "trade_number": "1895",
+      "entry_time": "2024-12-13 08:30:00",
+      "exit_time": "2024-12-13 09:30:00",
+      "direction": "long",
+      "pnl": -2100.000000000002,
+      "checks": {
+        "entry_signals_valid": true,
+        "no_lookahead_entry": true,
+        "entry_price_valid": "True",
+        "position_size_valid": "False",
+        "exit_price_valid": "True",
+        "exit_logic_valid": "True",
+        "no_suspicious_exit": true,
+        "clear_exit_path": true
+      },
+      "verdict": "SUSPICIOUS"
+    },
+    {
+      "trade_number": "1920",
+      "entry_time": "2024-12-20 12:45:00",
+      "exit_time": "2024-12-20 15:45:00",
+      "direction": "long",
+      "pnl": -2100.000000000002,
+      "checks": {
+        "entry_signals_valid": true,
+        "no_lookahead_entry": true,
+        "entry_price_valid": "True",
+        "position_size_valid": "False",
+        "exit_price_valid": "True",
+        "exit_logic_valid": "True",
+        "no_suspicious_exit": true,
+        "clear_exit_path": true
+      },
+      "verdict": "SUSPICIOUS"
+    }
+  ]
+}
