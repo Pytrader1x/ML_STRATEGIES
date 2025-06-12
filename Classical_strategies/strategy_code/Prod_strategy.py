@@ -184,19 +184,15 @@ class RiskManager:
         # Apply intelligent sizing multiplier
         position_size = base_position_size * size_multiplier
         
-        # Round to nearest million (standard lot sizing) but respect risk limits
-        position_size_millions = max(1.0, round(position_size / self.config.min_lot_size))
+        # Use exact position size for precise risk management
+        # Only round to nearest 100K units (0.1M) for practical trading
+        position_size_millions = round(position_size / self.config.min_lot_size, 1)
+        
+        # Ensure minimum viable position (but not 1M minimum)
+        if position_size_millions < 0.1:
+            position_size_millions = 0.1
+        
         position_size = position_size_millions * self.config.min_lot_size
-        
-        # Double-check risk doesn't exceed target due to rounding
-        actual_risk = (sl_distance_pips * self.config.pip_value_per_million * position_size / self.config.min_lot_size)
-        max_allowed_risk = risk_amount * (2.0 if self.config.intelligent_sizing else 1.5)  # Allow some buffer
-        
-        if actual_risk > max_allowed_risk:
-            # Reduce to the exact risk target
-            exact_position_size = (risk_amount * self.config.min_lot_size) / (sl_distance_pips * self.config.pip_value_per_million)
-            position_size_millions = max(1.0, int(exact_position_size / self.config.min_lot_size))
-            position_size = position_size_millions * self.config.min_lot_size
         
         # Check capital constraints (margin requirement)
         required_margin = position_size * 0.01  # 1% margin requirement
@@ -280,9 +276,9 @@ class OptimizedStrategyConfig:
     relaxed_tsl_activation_pips: float = 8
     
     # Intelligent sizing
-    intelligent_sizing: bool = True
+    intelligent_sizing: bool = False  # Disabled by default for consistent risk management
     confidence_thresholds: Tuple[float, float, float] = (30.0, 50.0, 70.0)
-    size_multipliers: Tuple[float, float, float, float] = (1.0, 1.0, 3.0, 5.0)
+    size_multipliers: Tuple[float, float, float, float] = (0.5, 0.8, 1.0, 1.2)  # Conservative multipliers
     tp_confidence_adjustment: bool = True
     
     # Trading constraints
