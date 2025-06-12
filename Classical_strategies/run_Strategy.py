@@ -128,12 +128,22 @@ def calculate_trade_statistics(results):
     stats = {}
     
     # Extract basic stats if available
-    if 'trade_results' in results and results['trade_results'] is not None:
-        trades_df = results['trade_results']
-        if len(trades_df) > 0:
+    if 'trades' in results and results['trades'] is not None:
+        trades = results['trades']
+        if len(trades) > 0:
+            # Extract P&L values - handle both Trade objects and dictionaries
+            pnl_values = []
+            for trade in trades:
+                if hasattr(trade, 'pnl'):  # Trade object
+                    if trade.pnl is not None:
+                        pnl_values.append(trade.pnl)
+                elif isinstance(trade, dict) and 'pnl' in trade:  # Dictionary
+                    if trade['pnl'] is not None:
+                        pnl_values.append(trade['pnl'])
+            
             # Calculate consecutive wins/losses
-            wins = (trades_df['pnl'] > 0).astype(int)
-            losses = (trades_df['pnl'] < 0).astype(int)
+            wins = [1 if pnl > 0 else 0 for pnl in pnl_values]
+            losses = [1 if pnl < 0 else 0 for pnl in pnl_values]
             
             # Consecutive wins
             win_streaks = []
@@ -162,11 +172,11 @@ def calculate_trade_statistics(results):
                 loss_streaks.append(current_streak)
             
             stats['max_consecutive_wins'] = max(win_streaks) if win_streaks else 0
-            stats['avg_consecutive_wins'] = np.mean(win_streaks) if win_streaks else 0
+            stats['avg_consecutive_wins'] = int(round(np.mean(win_streaks))) if win_streaks else 0
             stats['max_consecutive_losses'] = max(loss_streaks) if loss_streaks else 0
-            stats['avg_consecutive_losses'] = np.mean(loss_streaks) if loss_streaks else 0
-            stats['num_wins'] = wins.sum()
-            stats['num_losses'] = losses.sum()
+            stats['avg_consecutive_losses'] = int(round(np.mean(loss_streaks))) if loss_streaks else 0
+            stats['num_wins'] = sum(wins)
+            stats['num_losses'] = sum(losses)
         else:
             stats = {
                 'max_consecutive_wins': 0,
@@ -184,17 +194,46 @@ def calculate_trade_statistics(results):
         stats['num_wins'] = int(total_trades * win_rate)
         stats['num_losses'] = total_trades - stats['num_wins']
         
-        # Rough estimates for consecutive stats
-        if win_rate > 0:
-            stats['avg_consecutive_wins'] = 1 / (1 - win_rate) if win_rate < 1 else total_trades
-            stats['max_consecutive_wins'] = min(int(stats['avg_consecutive_wins'] * 2), stats['num_wins'])
+        # Conservative estimates for consecutive stats using bounded approach
+        if stats['num_wins'] > 0:
+            # Average consecutive wins: simple bounded approach
+            if win_rate >= 0.8:
+                stats['avg_consecutive_wins'] = 4
+            elif win_rate >= 0.6:
+                stats['avg_consecutive_wins'] = 3
+            elif win_rate >= 0.4:
+                stats['avg_consecutive_wins'] = 2
+            else:
+                stats['avg_consecutive_wins'] = 1
+            
+            # Max consecutive wins: bounded by total wins and reasonable statistical limits
+            max_bound = min(stats['num_wins'], int(total_trades * 0.3))  # Max 30% of trades
+            if win_rate >= 0.8:
+                stats['max_consecutive_wins'] = min(max_bound, stats['avg_consecutive_wins'] * 8)
+            elif win_rate >= 0.6:
+                stats['max_consecutive_wins'] = min(max_bound, stats['avg_consecutive_wins'] * 5)
+            else:
+                stats['max_consecutive_wins'] = min(max_bound, stats['avg_consecutive_wins'] * 3)
         else:
             stats['avg_consecutive_wins'] = 0
             stats['max_consecutive_wins'] = 0
             
-        if win_rate < 1:
-            stats['avg_consecutive_losses'] = 1 / win_rate if win_rate > 0 else total_trades
-            stats['max_consecutive_losses'] = min(int(stats['avg_consecutive_losses'] * 2), stats['num_losses'])
+        if stats['num_losses'] > 0:
+            # Average consecutive losses: simple bounded approach
+            loss_rate = 1.0 - win_rate
+            if loss_rate >= 0.6:
+                stats['avg_consecutive_losses'] = 3
+            elif loss_rate >= 0.4:
+                stats['avg_consecutive_losses'] = 2
+            else:
+                stats['avg_consecutive_losses'] = 1
+            
+            # Max consecutive losses: bounded by total losses and reasonable limits
+            max_bound = min(stats['num_losses'], int(total_trades * 0.2))  # Max 20% of trades
+            if loss_rate >= 0.4:
+                stats['max_consecutive_losses'] = min(max_bound, stats['avg_consecutive_losses'] * 4)
+            else:
+                stats['max_consecutive_losses'] = min(max_bound, stats['avg_consecutive_losses'] * 3)
         else:
             stats['avg_consecutive_losses'] = 0
             stats['max_consecutive_losses'] = 0
@@ -1027,6 +1066,17 @@ class FinalCryptoStrategy:
         else:
             profit_factor = float('inf') if winning_trades else 0
         
+        # Create a simple trade results list for compatibility
+        trade_results = []
+        for t in self.trades:
+            trade_results.append({
+                'pnl': t.pnl_dollars,
+                'pnl_pct': t.pnl_pct,
+                'entry_time': t.entry_time,
+                'exit_time': t.exit_time,
+                'direction': t.direction
+            })
+        
         return {
             'total_trades': len(self.trades),
             'win_rate': win_rate,
@@ -1036,7 +1086,8 @@ class FinalCryptoStrategy:
             'total_pnl': total_pnl,
             'profit_factor': profit_factor,
             'avg_win': np.mean([t.pnl_pct for t in winning_trades]) if winning_trades else 0,
-            'avg_loss': np.mean([t.pnl_pct for t in losing_trades]) if losing_trades else 0
+            'avg_loss': np.mean([t.pnl_pct for t in losing_trades]) if losing_trades else 0,
+            'trades': trade_results  # Add this for compatibility
         }
 
 
