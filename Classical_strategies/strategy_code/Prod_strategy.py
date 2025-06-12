@@ -155,27 +155,54 @@ class RiskManager:
                               current_capital: float, is_relaxed: bool = False,
                               confidence: float = 50.0) -> float:
         """Calculate position size based on risk management rules"""
-        # Default position size is 1M
-        position_size_millions = 1.0
         
-        # Apply intelligent sizing based on confidence
-        if self.config.intelligent_sizing:
-            size_millions, _ = self.get_position_size_multiplier(confidence)
-            position_size_millions = size_millions
+        # Calculate stop loss distance in pips
+        sl_distance_pips = abs(entry_price - stop_loss) / FOREX_PIP_SIZE
         
-        # Apply relaxed mode position reduction
+        # Prevent division by zero
+        if sl_distance_pips <= 0:
+            sl_distance_pips = 10.0  # Default 10 pip stop
+        
+        # Calculate risk amount based on current capital
+        risk_amount = current_capital * self.config.risk_per_trade
+        
+        # Apply relaxed mode risk reduction
         if is_relaxed:
-            position_size_millions *= self.config.relaxed_position_multiplier
-            position_size_millions = max(1.0, round(position_size_millions))
+            risk_amount *= self.config.relaxed_position_multiplier
         
-        # Convert to units
+        # Calculate base position size using risk-based formula
+        # For forex: $100 per pip per 1M units means $0.0001 per pip per unit
+        # Formula: position_size = risk_amount / (sl_distance_pips * pip_value_per_unit)
+        # Rearranged: position_size = (risk_amount * min_lot_size) / (sl_distance_pips * pip_value_per_million)
+        base_position_size = (risk_amount * self.config.min_lot_size) / (sl_distance_pips * self.config.pip_value_per_million)
+        
+        # Apply intelligent sizing multiplier based on confidence
+        size_multiplier = 1.0
+        if self.config.intelligent_sizing:
+            size_multiplier, _ = self.get_position_size_multiplier(confidence)
+        
+        # Apply intelligent sizing multiplier
+        position_size = base_position_size * size_multiplier
+        
+        # Round to nearest million (standard lot sizing) but respect risk limits
+        position_size_millions = max(1.0, round(position_size / self.config.min_lot_size))
         position_size = position_size_millions * self.config.min_lot_size
         
-        # Check capital constraints
+        # Double-check risk doesn't exceed target due to rounding
+        actual_risk = (sl_distance_pips * self.config.pip_value_per_million * position_size / self.config.min_lot_size)
+        max_allowed_risk = risk_amount * (2.0 if self.config.intelligent_sizing else 1.5)  # Allow some buffer
+        
+        if actual_risk > max_allowed_risk:
+            # Reduce to the exact risk target
+            exact_position_size = (risk_amount * self.config.min_lot_size) / (sl_distance_pips * self.config.pip_value_per_million)
+            position_size_millions = max(1.0, int(exact_position_size / self.config.min_lot_size))
+            position_size = position_size_millions * self.config.min_lot_size
+        
+        # Check capital constraints (margin requirement)
         required_margin = position_size * 0.01  # 1% margin requirement
-        if required_margin > current_capital:
-            affordable_millions = int(current_capital / (self.config.min_lot_size * 0.01))
-            position_size = max(self.config.min_lot_size, affordable_millions * self.config.min_lot_size)
+        if required_margin > current_capital * 0.95:  # Don't use more than 95% of capital
+            max_millions = int((current_capital * 0.95) / (self.config.min_lot_size * 0.01))
+            position_size = max(self.config.min_lot_size, max_millions * self.config.min_lot_size)
         
         return position_size
 
