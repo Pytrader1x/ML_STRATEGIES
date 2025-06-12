@@ -83,17 +83,20 @@ The new `run_Strategy.py` merges all Monte Carlo testing capabilities into a sin
 
 #### Single Currency Mode (with full analysis)
 ```bash
-# Default: AUDUSD with 50 iterations of 8,000 rows (saves plots to PNG)
+# Default: AUDUSD with 50 iterations of 8,000 rows (no plots saved)
 python run_Strategy.py
+
+# Show interactive trading charts (displays actual trades from last iteration)
+python run_Strategy.py --show-plots
+
+# Save all charts to PNG files
+python run_Strategy.py --save-plots
 
 # Same as above but explicit
 python run_Strategy.py --mode single --currency AUDUSD --iterations 50 --sample-size 8000
 
-# Test with interactive plot display
-python run_Strategy.py --mode single --currency AUDUSD --show-plots
-
-# Test without saving plots (only display)
-python run_Strategy.py --mode single --currency AUDUSD --show-plots --no-save-plots
+# Test different currency with plots
+python run_Strategy.py --currency GBPUSD --show-plots
 
 # Test GBPUSD with 100 iterations and larger samples
 python run_Strategy.py --mode single --currency GBPUSD --iterations 100 --sample-size 10000
@@ -121,9 +124,11 @@ python run_Strategy.py --mode multi --currencies EURUSD GBPUSD USDJPY
 - **Performance optimizations**: Modular design for better code reuse
 - **Extensible**: Custom mode for future strategy enhancements
 - **Flexible plotting**: Control whether to show plots interactively and/or save to PNG
-  - `--show-plots`: Display plots in GUI window
-  - `--no-save-plots`: Don't save plots to files
-  - Default: Save plots to PNG without displaying
+  - `--show-plots`: Display trading charts and summaries in GUI window
+  - `--save-plots`: Save all charts to PNG files
+  - Default: No plots (faster execution)
+- **Trading chart visualization**: When using `--show-plots`, see actual trades from the last iteration
+- **Crypto mode integration**: Test crypto-specific strategies with wider stops
 
 ## 📈 Data Requirements
 

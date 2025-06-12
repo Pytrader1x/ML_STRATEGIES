@@ -10,15 +10,16 @@ from strategy_code.Prod_plotting import plot_production_results
 from technical_indicators_custom import TIC
 import warnings
 import os
-import sys
 from datetime import datetime
 import matplotlib.pyplot as plt
-import seaborn as sns
 import argparse
+from dataclasses import dataclass
+from typing import Optional
+import json
 
 warnings.filterwarnings('ignore')
 
-__version__ = "2.0.0"
+__version__ = "2.1.0"
 
 
 def create_config_1_ultra_tight_risk():
@@ -89,8 +90,17 @@ def create_config_2_scalping():
     return OptimizedProdStrategy(config)
 
 
-def load_and_prepare_data(currency_pair, data_path='../data'):
+def load_and_prepare_data(currency_pair, data_path=None):
     """Load and prepare data for a specific currency pair"""
+    if data_path is None:
+        # Auto-detect data path based on current location
+        if os.path.exists('data'):
+            data_path = 'data'
+        elif os.path.exists('../data'):
+            data_path = '../data'
+        else:
+            raise FileNotFoundError("Cannot find data directory. Please run from project root.")
+    
     file_path = os.path.join(data_path, f'{currency_pair}_MASTER_15M.csv')
     
     if not os.path.exists(file_path):
@@ -113,9 +123,11 @@ def load_and_prepare_data(currency_pair, data_path='../data'):
     return df
 
 
-def run_single_monte_carlo(df, strategy, n_iterations, sample_size):
+def run_single_monte_carlo(df, strategy, n_iterations, sample_size, return_last_sample=False):
     """Run Monte Carlo simulation for a single strategy configuration"""
     iteration_results = []
+    last_sample_df = None
+    last_results = None
     
     for i in range(n_iterations):
         # Get random starting point
@@ -128,6 +140,11 @@ def run_single_monte_carlo(df, strategy, n_iterations, sample_size):
         
         # Run backtest
         results = strategy.run_backtest(sample_df)
+        
+        # Store last iteration data if needed
+        if return_last_sample and i == n_iterations - 1:
+            last_sample_df = sample_df.copy()
+            last_results = results.copy()
         
         # Store results
         iteration_data = {
@@ -151,10 +168,12 @@ def run_single_monte_carlo(df, strategy, n_iterations, sample_size):
         if (i + 1) % 10 == 0 or i == 0:
             print(f"  Completed {i + 1}/{n_iterations} iterations...")
     
+    if return_last_sample:
+        return pd.DataFrame(iteration_results), last_sample_df, last_results
     return pd.DataFrame(iteration_results)
 
 
-def generate_calendar_year_analysis(results_df, config_name, currency=None, show_plots=False, save_plots=True):
+def generate_calendar_year_analysis(results_df, config_name, currency=None, show_plots=False, save_plots=False):
     """Generate calendar year analysis and visualizations"""
     # Add year columns
     results_df['primary_year'] = results_df.apply(
@@ -249,7 +268,7 @@ def generate_calendar_year_analysis(results_df, config_name, currency=None, show
 
 def run_single_currency_mode(currency='AUDUSD', n_iterations=50, sample_size=8000, 
                            enable_plots=True, enable_calendar_analysis=True,
-                           show_plots=False, save_plots=True):
+                           show_plots=False, save_plots=False):
     """Run Monte Carlo testing on a single currency pair with both configurations"""
     
     print("="*80)
@@ -273,9 +292,20 @@ def run_single_currency_mode(currency='AUDUSD', n_iterations=50, sample_size=800
         print(f"Testing {config_name}")
         print(f"{'='*80}")
         
-        # Run Monte Carlo
-        results_df = run_single_monte_carlo(df, strategy, n_iterations, sample_size)
-        all_results[config_name] = results_df
+        # Run Monte Carlo (get last sample if we need to show plots)
+        if show_plots or save_plots:
+            results_df, last_sample_df, last_results = run_single_monte_carlo(
+                df, strategy, n_iterations, sample_size, return_last_sample=True
+            )
+            # Store last sample data for plotting
+            if config_name not in all_results:
+                all_results[config_name] = {}
+            all_results[config_name]['results_df'] = results_df
+            all_results[config_name]['last_sample_df'] = last_sample_df
+            all_results[config_name]['last_results'] = last_results
+        else:
+            results_df = run_single_monte_carlo(df, strategy, n_iterations, sample_size)
+            all_results[config_name] = {'results_df': results_df}
         
         # Print summary statistics
         print("\nSummary Statistics:")
@@ -362,13 +392,41 @@ def run_multi_currency_mode(currencies=['GBPUSD', 'EURUSD', 'USDJPY', 'NZDUSD', 
     return all_results
 
 
-def generate_comparison_plots(all_results, currency, show_plots=False, save_plots=True):
+def generate_comparison_plots(all_results, currency, show_plots=False, save_plots=False):
     """Generate comparison plots for single currency mode"""
+    # First, show the trading charts for last iteration of each config
+    for config_name, config_data in all_results.items():
+        if 'last_sample_df' in config_data and 'last_results' in config_data:
+            print(f"\nGenerating trading chart for {config_name} - Last Iteration...")
+            
+            try:
+                # Generate the actual trading chart
+                fig = plot_production_results(
+                    df=config_data['last_sample_df'],
+                    results=config_data['last_results'],
+                    title=f"{config_name} - Last Iteration\nSharpe={config_data['last_results']['sharpe_ratio']:.3f}, P&L=${config_data['last_results']['total_pnl']:,.0f}",
+                    show_pnl=True,
+                    show=show_plots
+                )
+                
+                # Save if requested
+                if save_plots and fig is not None:
+                    plot_filename = f'results/{currency}_{config_name.replace(":", "").replace(" ", "_").lower()}_last_iteration.png'
+                    fig.savefig(plot_filename, dpi=150, bbox_inches='tight')
+                    print(f"Trading chart saved to {plot_filename}")
+                    
+                if not show_plots and fig is not None:
+                    plt.close(fig)
+                    
+            except Exception as e:
+                print(f"Warning: Could not generate trading chart for {config_name}: {e}")
+    
+    # Now generate the summary comparison plots
     fig, axes = plt.subplots(2, 2, figsize=(15, 10))
     fig.suptitle(f'{currency} - Monte Carlo Analysis Comparison', fontsize=16)
     
-    config1_df = all_results["Config 1: Ultra-Tight Risk Management"]
-    config2_df = all_results["Config 2: Scalping Strategy"]
+    config1_df = all_results["Config 1: Ultra-Tight Risk Management"]['results_df']
+    config2_df = all_results["Config 2: Scalping Strategy"]['results_df']
     
     # Plot 1: Sharpe Ratio Distribution
     ax1 = axes[0, 0]
@@ -512,6 +570,601 @@ def save_multi_currency_results(all_results):
     print(f"\nDetailed results saved to results/multi_currency_monte_carlo_results.csv")
 
 
+# ============================================================================
+# CRYPTO STRATEGY SECTION
+# ============================================================================
+
+@dataclass
+class CryptoTrade:
+    """Represents a single crypto trade"""
+    entry_time: pd.Timestamp
+    entry_price: float
+    position_size: float
+    direction: int
+    stop_loss: float
+    take_profit: float
+    exit_time: Optional[pd.Timestamp] = None
+    exit_price: Optional[float] = None
+    exit_reason: Optional[str] = None
+    pnl_pct: Optional[float] = None
+    pnl_dollars: Optional[float] = None
+
+
+class FinalCryptoStrategy:
+    """
+    Crypto-specific strategy with wider stops and trend following
+    """
+    
+    def __init__(self, config):
+        self.config = config
+        self.trades = []
+        self.equity_curve = []
+        self.current_capital = config['initial_capital']
+        
+    def calculate_position_size(self, price, stop_loss_price):
+        """Simple fixed fractional position sizing"""
+        risk_amount = self.current_capital * self.config['risk_per_trade']
+        price_risk_pct = abs(price - stop_loss_price) / price
+        
+        if price_risk_pct == 0:
+            return 0
+        
+        position_value = risk_amount / price_risk_pct
+        position_size = position_value / price
+        
+        # Max position size
+        max_value = self.current_capital * self.config['max_position_pct']
+        max_size = max_value / price
+        
+        return min(position_size, max_size)
+    
+    def calculate_trend_strength(self, df, i):
+        """Calculate trend strength using multiple timeframes"""
+        if i < 200:
+            return 0
+        
+        # Multiple moving averages
+        ma_20 = df['Close'].iloc[i-20:i].mean()
+        ma_50 = df['Close'].iloc[i-50:i].mean()
+        ma_100 = df['Close'].iloc[i-100:i].mean()
+        ma_200 = df['Close'].iloc[i-200:i].mean()
+        
+        current_price = df['Close'].iloc[i]
+        
+        # Bull trend scoring
+        bull_score = 0
+        if current_price > ma_20:
+            bull_score += 1
+        if ma_20 > ma_50:
+            bull_score += 1
+        if ma_50 > ma_100:
+            bull_score += 1
+        if ma_100 > ma_200:
+            bull_score += 1
+        if current_price > ma_200 * 1.1:  # 10% above 200MA
+            bull_score += 1
+        
+        # Bear trend scoring
+        bear_score = 0
+        if current_price < ma_20:
+            bear_score += 1
+        if ma_20 < ma_50:
+            bear_score += 1
+        if ma_50 < ma_100:
+            bear_score += 1
+        if ma_100 < ma_200:
+            bear_score += 1
+        if current_price < ma_200 * 0.9:  # 10% below 200MA
+            bear_score += 1
+        
+        return bull_score - bear_score
+    
+    def check_volatility_filter(self, df, i):
+        """Check if volatility is in acceptable range"""
+        if i < 100:
+            return True
+        
+        # Calculate recent volatility
+        returns = df['Close'].iloc[i-96:i].pct_change().dropna()
+        daily_vol = returns.std() * np.sqrt(96)
+        
+        # Filter out extreme volatility periods
+        return 0.02 < daily_vol < 0.15  # 2% to 15% daily volatility
+    
+    def run_backtest(self, df):
+        """Run crypto backtest"""
+        # Add required indicators
+        required_cols = ['NTI_Direction', 'MB_Bias', 'IC_Signal']
+        for col in required_cols:
+            if col not in df.columns:
+                raise ValueError(f"Missing required indicator: {col}")
+        
+        # Initialize
+        self.trades = []
+        self.equity_curve = [self.config['initial_capital']]
+        self.current_capital = self.config['initial_capital']
+        open_trade = None
+        
+        # Track last signal
+        last_signal_direction = 0
+        bars_since_exit = 0
+        
+        # Main loop
+        for i in range(200, len(df)):
+            current_bar = df.iloc[i]
+            current_time = df.index[i]
+            current_price = current_bar['Close']
+            
+            # Update bars since exit
+            if open_trade is None:
+                bars_since_exit += 1
+            
+            # Check open trade
+            if open_trade is not None:
+                exit_price = None
+                exit_reason = None
+                
+                # Stop loss
+                if open_trade.direction > 0:
+                    if current_bar['Low'] <= open_trade.stop_loss:
+                        exit_price = open_trade.stop_loss
+                        exit_reason = 'Stop Loss'
+                else:
+                    if current_bar['High'] >= open_trade.stop_loss:
+                        exit_price = open_trade.stop_loss
+                        exit_reason = 'Stop Loss'
+                
+                # Take profit
+                if exit_price is None:
+                    if open_trade.direction > 0:
+                        if current_bar['High'] >= open_trade.take_profit:
+                            exit_price = open_trade.take_profit
+                            exit_reason = 'Take Profit'
+                    else:
+                        if current_bar['Low'] <= open_trade.take_profit:
+                            exit_price = open_trade.take_profit
+                            exit_reason = 'Take Profit'
+                
+                # Trailing stop
+                if exit_price is None and self.config['use_trailing_stop']:
+                    profit_pct = (current_price - open_trade.entry_price) / open_trade.entry_price * open_trade.direction
+                    
+                    if profit_pct > self.config['trailing_activation_pct']:
+                        if open_trade.direction > 0:
+                            new_stop = open_trade.entry_price * (1 + self.config['trailing_lock_profit_pct'])
+                            open_trade.stop_loss = max(open_trade.stop_loss, new_stop)
+                            
+                            trail_stop = current_price * (1 - self.config['trailing_distance_pct'])
+                            open_trade.stop_loss = max(open_trade.stop_loss, trail_stop)
+                        else:
+                            new_stop = open_trade.entry_price * (1 - self.config['trailing_lock_profit_pct'])
+                            open_trade.stop_loss = min(open_trade.stop_loss, new_stop)
+                            
+                            trail_stop = current_price * (1 + self.config['trailing_distance_pct'])
+                            open_trade.stop_loss = min(open_trade.stop_loss, trail_stop)
+                
+                # Exit on reversal
+                if exit_price is None and current_bar['NTI_Direction'] * open_trade.direction < 0:
+                    trend_strength = self.calculate_trend_strength(df, i)
+                    if abs(trend_strength) >= 3 and trend_strength * open_trade.direction < 0:
+                        exit_price = current_price
+                        exit_reason = 'Trend Reversal'
+                
+                # Close trade if exit triggered
+                if exit_price is not None:
+                    open_trade = self._close_trade(open_trade, exit_price, current_time, exit_reason)
+                    self.trades.append(open_trade)
+                    open_trade = None
+                    last_signal_direction = 0
+                    bars_since_exit = 0
+            
+            # Check for new entry
+            if open_trade is None and bars_since_exit >= self.config['min_bars_between_trades']:
+                nti_dir = current_bar['NTI_Direction']
+                mb_bias = current_bar['MB_Bias']
+                
+                if nti_dir != 0 and nti_dir != last_signal_direction:
+                    trend_score = self.calculate_trend_strength(df, i)
+                    
+                    if abs(trend_score) >= self.config['min_trend_score']:
+                        if (trend_score > 0 and nti_dir > 0) or (trend_score < 0 and nti_dir < 0):
+                            if self.check_volatility_filter(df, i):
+                                if mb_bias == nti_dir:
+                                    if current_bar['IC_Signal'] != 0:
+                                        # Calculate ATR
+                                        atr = self._calculate_atr(df, i, period=20)
+                                        
+                                        direction = nti_dir
+                                        
+                                        # Wider stops for crypto
+                                        atr_in_pct = atr / current_price
+                                        sl_distance = max(
+                                            self.config['min_stop_pct'],
+                                            atr_in_pct * self.config['atr_multiplier_sl']
+                                        )
+                                        
+                                        tp_distance = sl_distance * self.config['risk_reward_ratio']
+                                        
+                                        if direction > 0:
+                                            sl_price = current_price * (1 - sl_distance)
+                                            tp_price = current_price * (1 + tp_distance)
+                                        else:
+                                            sl_price = current_price * (1 + sl_distance)
+                                            tp_price = current_price * (1 - tp_distance)
+                                        
+                                        position_size = self.calculate_position_size(current_price, sl_price)
+                                        
+                                        if position_size > 0:
+                                            open_trade = CryptoTrade(
+                                                entry_time=current_time,
+                                                entry_price=current_price,
+                                                position_size=position_size,
+                                                direction=direction,
+                                                stop_loss=sl_price,
+                                                take_profit=tp_price
+                                            )
+                                            last_signal_direction = nti_dir
+            
+            # Update equity
+            current_equity = self._calculate_current_equity(open_trade, current_price)
+            self.equity_curve.append(current_equity)
+        
+        # Close final trade
+        if open_trade is not None:
+            open_trade = self._close_trade(
+                open_trade, df.iloc[-1]['Close'], df.index[-1], 'End of Data'
+            )
+            self.trades.append(open_trade)
+        
+        return self._calculate_performance_metrics()
+    
+    def _close_trade(self, trade, exit_price, exit_time, exit_reason):
+        """Close trade and calculate P&L"""
+        trade.exit_time = exit_time
+        trade.exit_price = exit_price
+        trade.exit_reason = exit_reason
+        
+        price_change_pct = (exit_price - trade.entry_price) / trade.entry_price
+        trade.pnl_pct = price_change_pct * trade.direction * 100
+        trade.pnl_dollars = trade.position_size * (exit_price - trade.entry_price) * trade.direction
+        
+        self.current_capital += trade.pnl_dollars
+        
+        return trade
+    
+    def _calculate_current_equity(self, open_trade, current_price):
+        """Calculate equity including open position"""
+        equity = self.current_capital
+        
+        if open_trade is not None:
+            unrealized_pnl = open_trade.position_size * (current_price - open_trade.entry_price) * open_trade.direction
+            equity += unrealized_pnl
+        
+        return equity
+    
+    def _calculate_atr(self, df, i, period=14):
+        """Calculate Average True Range"""
+        if i < period:
+            return df['High'].iloc[:i].mean() - df['Low'].iloc[:i].mean()
+        
+        high_low = df['High'].iloc[i-period:i] - df['Low'].iloc[i-period:i]
+        return high_low.mean()
+    
+    def _calculate_performance_metrics(self):
+        """Calculate crypto performance metrics"""
+        if not self.trades:
+            return {
+                'total_trades': 0,
+                'win_rate': 0,
+                'sharpe_ratio': 0,
+                'max_drawdown': 0,
+                'total_return': 0,
+                'total_pnl': 0,
+                'profit_factor': 0,
+                'avg_win': 0,
+                'avg_loss': 0
+            }
+        
+        # Basic metrics
+        winning_trades = [t for t in self.trades if t.pnl_pct > 0]
+        losing_trades = [t for t in self.trades if t.pnl_pct < 0]
+        
+        win_rate = len(winning_trades) / len(self.trades) * 100
+        
+        # Returns
+        equity_array = np.array(self.equity_curve)
+        returns = np.diff(equity_array) / equity_array[:-1]
+        returns = returns[returns != 0]
+        
+        # Sharpe ratio (adjusted for crypto)
+        if len(returns) > 1 and np.std(returns) > 0:
+            sharpe_ratio = np.mean(returns) / np.std(returns) * np.sqrt(365 * 96)
+        else:
+            sharpe_ratio = 0
+        
+        # Max drawdown
+        peak = np.maximum.accumulate(equity_array)
+        drawdown = (equity_array - peak) / peak * 100
+        max_drawdown = abs(np.min(drawdown))
+        
+        # Total return
+        total_return = (equity_array[-1] - equity_array[0]) / equity_array[0] * 100
+        total_pnl = equity_array[-1] - equity_array[0]
+        
+        # Profit factor
+        if losing_trades:
+            gross_profits = sum(t.pnl_dollars for t in winning_trades) if winning_trades else 0
+            gross_losses = abs(sum(t.pnl_dollars for t in losing_trades))
+            profit_factor = gross_profits / gross_losses if gross_losses > 0 else 0
+        else:
+            profit_factor = float('inf') if winning_trades else 0
+        
+        return {
+            'total_trades': len(self.trades),
+            'win_rate': win_rate,
+            'sharpe_ratio': sharpe_ratio,
+            'max_drawdown': max_drawdown,
+            'total_return': total_return,
+            'total_pnl': total_pnl,
+            'profit_factor': profit_factor,
+            'avg_win': np.mean([t.pnl_pct for t in winning_trades]) if winning_trades else 0,
+            'avg_loss': np.mean([t.pnl_pct for t in losing_trades]) if losing_trades else 0
+        }
+
+
+def create_crypto_conservative_config():
+    """Conservative crypto configuration - focus on high probability"""
+    return {
+        'initial_capital': 100000,
+        'risk_per_trade': 0.002,  # 0.2% risk
+        'max_position_pct': 0.10,  # 10% max position
+        
+        # Stops and targets
+        'min_stop_pct': 0.04,  # 4% minimum stop
+        'atr_multiplier_sl': 3.0,  # 3x ATR for stop
+        'risk_reward_ratio': 2.0,  # 2:1 RR minimum
+        
+        # Trailing stop
+        'use_trailing_stop': True,
+        'trailing_activation_pct': 0.03,  # Activate at 3%
+        'trailing_lock_profit_pct': 0.01,  # Lock 1% profit
+        'trailing_distance_pct': 0.02,  # Trail by 2%
+        
+        # Entry filters
+        'min_trend_score': 3,  # Strong trend required (3/5)
+        'min_bars_between_trades': 20,  # Space out trades
+    }
+
+
+def create_crypto_moderate_config():
+    """Moderate crypto configuration - balanced approach"""
+    return {
+        'initial_capital': 100000,
+        'risk_per_trade': 0.0025,  # 0.25% risk
+        'max_position_pct': 0.15,  # 15% max position
+        
+        # Stops and targets
+        'min_stop_pct': 0.03,  # 3% minimum stop
+        'atr_multiplier_sl': 2.5,  # 2.5x ATR
+        'risk_reward_ratio': 1.5,  # 1.5:1 RR
+        
+        # Trailing stop
+        'use_trailing_stop': True,
+        'trailing_activation_pct': 0.02,  # Activate at 2%
+        'trailing_lock_profit_pct': 0.005,  # Lock 0.5%
+        'trailing_distance_pct': 0.015,  # Trail by 1.5%
+        
+        # Entry filters
+        'min_trend_score': 2,  # Moderate trend
+        'min_bars_between_trades': 10,
+    }
+
+
+def run_crypto_mode(crypto='ETHUSD', test_periods=None, save_results=False):
+    """Run crypto strategy testing with specified periods"""
+    
+    print("="*80)
+    print(f"CRYPTO STRATEGY MODE - {crypto}")
+    print("Focus: Trend Following with Crypto-Specific Risk Management")
+    print("="*80)
+    
+    # Default test periods if not specified
+    if test_periods is None:
+        test_periods = [
+            ("2021 Bull Market", "2021-01-01", "2021-12-31"),
+            ("2022 Bear Market", "2022-01-01", "2022-12-31"),
+            ("2023-2024 Recovery", "2023-01-01", "2024-12-31"),
+            ("Last 12 Months", "2024-01-01", "2024-12-31"),
+            ("Full Period", None, None)  # Test entire dataset
+        ]
+    
+    # Load crypto data - try multiple paths
+    possible_paths = [
+        f'crypto_data/{crypto}_MASTER_15M.csv',
+        f'data/{crypto}_MASTER_15M.csv',
+        f'../crypto_data/{crypto}_MASTER_15M.csv',
+        f'../data/{crypto}_MASTER_15M.csv'
+    ]
+    
+    data_path = None
+    for path in possible_paths:
+        if os.path.exists(path):
+            data_path = path
+            break
+    
+    if data_path is None:
+        print(f"Error: Crypto data file not found for {crypto}")
+        print(f"Looked in: crypto_data/, data/, ../crypto_data/, and ../data/")
+        return None
+    
+    print(f"\nLoading {crypto} data...")
+    df = pd.read_csv(data_path)
+    df['DateTime'] = pd.to_datetime(df['DateTime'])
+    df.set_index('DateTime', inplace=True)
+    
+    # Add indicators
+    print("Calculating indicators...")
+    df = TIC.add_neuro_trend_intelligent(df)
+    df = TIC.add_market_bias(df)
+    df = TIC.add_intelligent_chop(df)
+    
+    print(f"Data ready: {len(df):,} rows from {df.index[0]} to {df.index[-1]}")
+    
+    # Test configurations
+    configs = [
+        ("Crypto Conservative", create_crypto_conservative_config()),
+        ("Crypto Moderate", create_crypto_moderate_config())
+    ]
+    
+    all_results = {}
+    
+    for config_name, config in configs:
+        print(f"\n{'='*60}")
+        print(f"Testing {config_name} Configuration")
+        print(f"{'='*60}")
+        
+        config_results = {}
+        
+        for period_name, start_date, end_date in test_periods:
+            # Get period data
+            if start_date is None and end_date is None:
+                period_df = df.copy()
+            else:
+                period_df = df[start_date:end_date].copy()
+            
+            if len(period_df) < 500:
+                print(f"\n{period_name}: Insufficient data ({len(period_df)} rows)")
+                continue
+            
+            # Run strategy
+            strategy = FinalCryptoStrategy(config)
+            
+            try:
+                metrics = strategy.run_backtest(period_df)
+                config_results[period_name] = metrics
+                
+                print(f"\n{period_name} ({len(period_df):,} rows):")
+                print(f"  Sharpe Ratio:  {metrics['sharpe_ratio']:.3f}")
+                print(f"  Total Return:  {metrics['total_return']:.1f}%")
+                print(f"  Total P&L:     ${metrics['total_pnl']:,.0f}")
+                print(f"  Win Rate:      {metrics['win_rate']:.1f}%")
+                print(f"  Total Trades:  {metrics['total_trades']}")
+                print(f"  Max Drawdown:  {metrics['max_drawdown']:.1f}%")
+                print(f"  Profit Factor: {metrics['profit_factor']:.2f}")
+                print(f"  Avg Win/Loss:  {metrics['avg_win']:.1f}% / {metrics['avg_loss']:.1f}%")
+                
+            except Exception as e:
+                print(f"\n{period_name}: Error - {e}")
+                continue
+        
+        # Calculate overall metrics
+        if config_results:
+            all_sharpes = [m['sharpe_ratio'] for m in config_results.values()]
+            all_returns = [m['total_return'] for m in config_results.values()]
+            positive_periods = sum(1 for r in all_returns if r > 0)
+            
+            print(f"\n{config_name} SUMMARY:")
+            print(f"  Average Sharpe:    {np.mean(all_sharpes):.3f}")
+            print(f"  Average Return:    {np.mean(all_returns):.1f}%")
+            print(f"  Positive Periods:  {positive_periods}/{len(all_returns)}")
+            print(f"  Best Period:       {max(config_results.items(), key=lambda x: x[1]['sharpe_ratio'])[0]}")
+            print(f"  Worst Period:      {min(config_results.items(), key=lambda x: x[1]['sharpe_ratio'])[0]}")
+        
+        all_results[config_name] = config_results
+    
+    # Save results if requested
+    if save_results and all_results:
+        results_file = f'results/{crypto.lower()}_crypto_strategy_results.json'
+        with open(results_file, 'w') as f:
+            json.dump(all_results, f, indent=2, default=str)
+        print(f"\n✅ Results saved to {results_file}")
+    
+    # Generate comparison plot
+    if all_results and len(all_results) > 0:
+        generate_crypto_comparison_plot(all_results, crypto)
+    
+    return all_results
+
+
+def generate_crypto_comparison_plot(results, crypto):
+    """Generate comparison plots for crypto strategies"""
+    fig, ((ax1, ax2), (ax3, ax4)) = plt.subplots(2, 2, figsize=(15, 10))
+    fig.suptitle(f'{crypto} - Crypto Strategy Analysis', fontsize=16)
+    
+    # Extract data for plotting
+    configs = list(results.keys())
+    periods = list(next(iter(results.values())).keys())
+    
+    # Plot 1: Sharpe Ratios by Period
+    ax1.set_title('Sharpe Ratios by Period')
+    for config in configs:
+        sharpes = [results[config].get(period, {}).get('sharpe_ratio', 0) for period in periods]
+        ax1.plot(periods, sharpes, marker='o', label=config, linewidth=2)
+    ax1.set_xlabel('Period')
+    ax1.set_ylabel('Sharpe Ratio')
+    ax1.axhline(y=0, color='black', linestyle='--', alpha=0.3)
+    ax1.axhline(y=1, color='green', linestyle='--', alpha=0.3)
+    ax1.legend()
+    ax1.grid(True, alpha=0.3)
+    plt.setp(ax1.xaxis.get_majorticklabels(), rotation=45, ha='right')
+    
+    # Plot 2: Returns by Period
+    ax2.set_title('Returns by Period')
+    x = np.arange(len(periods))
+    width = 0.35
+    for i, config in enumerate(configs):
+        returns = [results[config].get(period, {}).get('total_return', 0) for period in periods]
+        ax2.bar(x + i*width, returns, width, label=config, alpha=0.8)
+    ax2.set_xlabel('Period')
+    ax2.set_ylabel('Total Return (%)')
+    ax2.set_xticks(x + width/2)
+    ax2.set_xticklabels(periods, rotation=45, ha='right')
+    ax2.legend()
+    ax2.grid(True, alpha=0.3, axis='y')
+    
+    # Plot 3: Win Rate Comparison
+    ax3.set_title('Win Rate Comparison')
+    for config in configs:
+        win_rates = [results[config].get(period, {}).get('win_rate', 0) for period in periods]
+        ax3.plot(periods, win_rates, marker='s', label=config, linewidth=2)
+    ax3.set_xlabel('Period')
+    ax3.set_ylabel('Win Rate (%)')
+    ax3.axhline(y=50, color='red', linestyle='--', alpha=0.3)
+    ax3.legend()
+    ax3.grid(True, alpha=0.3)
+    plt.setp(ax3.xaxis.get_majorticklabels(), rotation=45, ha='right')
+    
+    # Plot 4: Risk Metrics
+    ax4.set_title('Risk Metrics Comparison')
+    metrics_data = []
+    for config in configs:
+        avg_dd = np.mean([results[config].get(p, {}).get('max_drawdown', 0) for p in periods])
+        avg_pf = np.mean([results[config].get(p, {}).get('profit_factor', 0) for p in periods])
+        avg_trades = np.mean([results[config].get(p, {}).get('total_trades', 0) for p in periods])
+        metrics_data.append([avg_dd, avg_pf * 10, avg_trades / 10])  # Scale for visibility
+    
+    metrics_labels = ['Avg Max DD', 'Avg PF (x10)', 'Avg Trades (/10)']
+    x = np.arange(len(metrics_labels))
+    width = 0.35
+    
+    for i, (config, data) in enumerate(zip(configs, metrics_data)):
+        ax4.bar(x + i*width, data, width, label=config, alpha=0.8)
+    
+    ax4.set_ylabel('Value')
+    ax4.set_xticks(x + width/2)
+    ax4.set_xticklabels(metrics_labels)
+    ax4.legend()
+    ax4.grid(True, alpha=0.3, axis='y')
+    
+    plt.tight_layout()
+    
+    # Save plot
+    plot_filename = f'results/{crypto.lower()}_crypto_strategy_comparison.png'
+    plt.savefig(plot_filename, dpi=150, bbox_inches='tight')
+    print(f"\nComparison plot saved to {plot_filename}")
+    plt.close()
+
+
 def main():
     """Main function with command line interface"""
     epilog_text = """
@@ -540,12 +1193,28 @@ def main():
   python run_Strategy.py --mode multi --currencies EURUSD GBPUSD
     → Test only Euro and British Pound
 
+🪙 CRYPTO STRATEGY TESTING:
+  python run_Strategy.py --mode crypto
+    → Test crypto strategies on ETHUSD (default)
+  
+  python run_Strategy.py --mode crypto --crypto BTCUSD
+    → Test crypto strategies on Bitcoin
+  
+  python run_Strategy.py --mode crypto --save-plots
+    → Test crypto and save comparison charts
+
 📈 VISUALIZATION OPTIONS:
-  python run_Strategy.py --show-plots --no-save-plots
-    → View plots interactively without saving PNG files
+  python run_Strategy.py --show-plots
+    → Display plots interactively (plots are NOT saved by default)
+  
+  python run_Strategy.py --save-plots
+    → Save plots to PNG files (useful for reports)
+  
+  python run_Strategy.py --show-plots --save-plots
+    → Both display and save plots
   
   python run_Strategy.py --no-plots
-    → Skip all visualizations (faster, analysis only)
+    → Skip all visualizations (fastest, analysis only)
 
 ⚡ PERFORMANCE OPTIONS:
   python run_Strategy.py --no-calendar
@@ -559,26 +1228,30 @@ def main():
 ═══════════════════════════════════════════════════════════════════════════════
 
 MODE SELECTION:
-  --mode        Choose between 'single' (one currency) or 'multi' (many currencies)
+  --mode        Choose between 'single' (one currency), 'multi' (many currencies), 
+                or 'crypto' (crypto strategies)
                 Default: single
 
 DATA PARAMETERS:
   --currency    Which currency pair to test (e.g., AUDUSD, GBPUSD, EURUSD)
                 Default: AUDUSD
   
+  --crypto      Which crypto pair to test in crypto mode (e.g., BTCUSD, ETHUSD)
+                Default: ETHUSD
+  
   --currencies  List of currencies for multi-mode testing
                 Default: GBPUSD EURUSD USDJPY NZDUSD USDCAD
   
   --iterations  How many random samples to test (more = more reliable)
-                Default: 50
+                Default: 50 (not used in crypto mode)
   
   --sample-size Number of data rows per test (more = longer time period)
-                Default: 8000 (~3 months of 15-minute data)
+                Default: 8000 (~3 months of 15-minute data, not used in crypto mode)
 
 VISUALIZATION:
   --show-plots      Open charts in a window for interactive viewing
-  --no-save-plots   Don't save charts as PNG files
-  --no-plots        Skip all chart generation (faster)
+  --save-plots      Save charts as PNG files (default: OFF to avoid long waits)
+  --no-plots        Skip all chart generation (fastest option)
 
 ANALYSIS:
   --no-calendar     Skip year-by-year performance breakdown
@@ -590,6 +1263,8 @@ ANALYSIS:
   • Larger sample sizes test strategy robustness over longer periods
   • Multi-currency mode helps identify which pairs work best
   • Calendar analysis reveals performance in different market conditions
+  • Plot saving is OFF by default for speed - use --save-plots when needed
+  • For large datasets (>50k rows), consider --no-plots for faster results
 
 📧 Need help? Check the README.md for detailed documentation
 """
@@ -599,19 +1274,27 @@ ANALYSIS:
 ╔══════════════════════════════════════════════════════════════════════════════╗
 ║          MONTE CARLO STRATEGY TESTER - High Performance Trading             ║
 ╠══════════════════════════════════════════════════════════════════════════════╣
-║  Test two proven trading strategies across multiple currency pairs:          ║
+║  Test proven trading strategies across Forex and Crypto markets:             ║
+║                                                                              ║
+║  FOREX STRATEGIES:                                                           ║
 ║  • Config 1: Ultra-Tight Risk Management (0.2% risk, 10 pip stops)         ║
 ║  • Config 2: Scalping Strategy (0.1% risk, 5 pip stops)                    ║
+║                                                                              ║
+║  CRYPTO STRATEGIES:                                                          ║
+║  • Conservative: High probability trend following (0.2% risk, 4% stops)     ║
+║  • Moderate: Balanced approach (0.25% risk, 3% stops)                      ║
 ╚══════════════════════════════════════════════════════════════════════════════╝
         ''',
         epilog=epilog_text,
         formatter_class=argparse.RawDescriptionHelpFormatter
     )
     parser.add_argument('--mode', type=str, default='single', 
-                       choices=['single', 'multi', 'custom'],
-                       help='Testing mode - "single": test one currency pair, "multi": test multiple pairs (default: single)')
+                       choices=['single', 'multi', 'crypto', 'custom'],
+                       help='Testing mode - "single": test one currency pair, "multi": test multiple pairs, "crypto": test crypto strategies (default: single)')
     parser.add_argument('--currency', type=str, default='AUDUSD',
                        help='Currency pair to test in single mode, e.g. GBPUSD, EURUSD (default: AUDUSD)')
+    parser.add_argument('--crypto', type=str, default='ETHUSD',
+                       help='Crypto pair to test in crypto mode, e.g. BTCUSD, ETHUSD (default: ETHUSD)')
     parser.add_argument('--currencies', type=str, nargs='+',
                        default=['GBPUSD', 'EURUSD', 'USDJPY', 'NZDUSD', 'USDCAD'],
                        help='List of currency pairs for multi mode (default: GBPUSD EURUSD USDJPY NZDUSD USDCAD)')
@@ -625,10 +1308,10 @@ ANALYSIS:
                        help='Skip year-by-year performance analysis')
     parser.add_argument('--show-plots', action='store_true',
                        help='Display charts in GUI window for interactive viewing')
-    parser.add_argument('--save-plots', action='store_true', default=True,
-                       help='Save charts as PNG files in results folder (default: enabled)')
+    parser.add_argument('--save-plots', action='store_true',
+                       help='Save charts as PNG files in results folder (default: disabled)')
     parser.add_argument('--no-save-plots', dest='save_plots', action='store_false',
-                       help='Disable saving charts to PNG files')
+                       help='Disable saving charts to PNG files (this is the default)')
     parser.add_argument('--version', '-v', action='version', 
                        version=f'Monte Carlo Strategy Tester v{__version__}')
     
@@ -655,6 +1338,12 @@ ANALYSIS:
             currencies=args.currencies,
             n_iterations=args.iterations,
             sample_size=args.sample_size
+        )
+    
+    elif args.mode == 'crypto':
+        run_crypto_mode(
+            crypto=args.crypto,
+            save_results=args.save_plots  # Use same flag for consistency
         )
     
     elif args.mode == 'custom':
