@@ -264,6 +264,7 @@ class OptimizedStrategyConfig:
     
     # Logging
     verbose: bool = False
+    debug_decisions: bool = False  # Print detailed decision logic for analysis
 
 
 # ============================================================================
@@ -709,7 +710,7 @@ class OptimizedProdStrategy:
         )
     
     def run_backtest(self, df: pd.DataFrame) -> Dict:
-        """Run the optimized backtest"""
+        """Run the optimized backtest with optional debug logging"""
         # Validate required columns
         required_cols = ['Open', 'High', 'Low', 'Close', 'NTI_Direction',
                         'MB_Bias', 'IC_Regime', 'IC_ATR_Normalized', 'IC_RegimeName']
@@ -721,20 +722,45 @@ class OptimizedProdStrategy:
         # Reset state
         self.reset()
         
+        if self.config.debug_decisions:
+            print(f"\n=== STARTING BACKTEST ===")
+            print(f"Data period: {df.index[0]} to {df.index[-1]}")
+            print(f"Total rows: {len(df)}")
+            print(f"Initial capital: ${self.config.initial_capital:,.0f}")
+            print("=" * 50)
+        
         # Main backtest loop
         for idx in range(1, len(df)):
             current_row = df.iloc[idx]
             current_time = df.index[idx]
+            
+            if self.config.debug_decisions:
+                # Print current market state every 100 rows or when significant events happen
+                if idx % 100 == 0 or self.current_trade is not None:
+                    print(f"\nRow {idx:5d} | {current_time} | Price: {current_row['Close']:.5f}")
+                    print(f"  NTI: {current_row['NTI_Direction']:2.0f} | MB: {current_row['MB_Bias']:2.0f} | IC: {current_row['IC_Regime']:2.0f} ({current_row['IC_RegimeName']})")
+                    print(f"  ATR: {current_row['IC_ATR_Normalized']:.5f} | Capital: ${self.current_capital:,.0f}")
             
             # Update equity curve
             self.equity_curve.append(self.current_capital)
             
             # Process open trade
             if self.current_trade is not None:
+                if self.config.debug_decisions:
+                    current_pnl = self.pnl_calculator.calculate_pnl(
+                        self.current_trade.entry_price, current_row['Close'], 
+                        self.current_trade.remaining_size, self.current_trade.direction
+                    )[0]
+                    print(f"  🔄 OPEN TRADE: {self.current_trade.direction.value} from {self.current_trade.entry_price:.5f}")
+                    print(f"     Current P&L: ${current_pnl:,.0f} | SL: {self.current_trade.stop_loss:.5f} | Trailing: {self.current_trade.trailing_stop}")
+                
                 # Check for partial profit taking
                 if self.signal_generator.check_partial_profit_conditions(current_row, self.current_trade):
                     trade_id = id(self.current_trade)
                     if trade_id not in self.partial_profit_taken:
+                        if self.config.debug_decisions:
+                            print(f"  ✅ PARTIAL PROFIT: Taking {self.config.partial_profit_size_percent*100:.0f}% profit at {current_row['Close']:.5f}")
+                        
                         # Take partial profit
                         exit_price = current_row['Close']
                         completed = self._execute_partial_exit(
@@ -744,19 +770,22 @@ class OptimizedProdStrategy:
                         self.partial_profit_taken[trade_id] = True
                         
                         if completed:
+                            if self.config.debug_decisions:
+                                print(f"  🏁 TRADE COMPLETED via partial profit")
                             self.trades.append(self.current_trade)
                             self.current_trade = None
                             continue
                 
                 # Update trailing stop
                 atr = current_row['IC_ATR_Normalized']
+                old_trailing_stop = self.current_trade.trailing_stop
                 new_trailing_stop = self._update_trailing_stop(
                     current_row['Close'], self.current_trade, atr
                 )
                 if new_trailing_stop is not None:
                     self.current_trade.trailing_stop = new_trailing_stop
-                if new_trailing_stop is not None:
-                    self.current_trade.trailing_stop = new_trailing_stop
+                    if self.config.debug_decisions and new_trailing_stop != old_trailing_stop:
+                        print(f"  📈 TRAILING STOP updated: {old_trailing_stop} → {new_trailing_stop:.5f}")
                 
                 # Check exit conditions
                 should_exit, exit_reason, exit_percent = self.signal_generator.check_exit_conditions(
@@ -764,8 +793,18 @@ class OptimizedProdStrategy:
                 )
                 
                 if should_exit:
+                    if self.config.debug_decisions:
+                        print(f"  🚪 EXIT SIGNAL: {exit_reason.value} ({exit_percent*100:.0f}% of position)")
+                    
                     # Determine exit price
                     exit_price = self._get_exit_price(current_row, self.current_trade, exit_reason)
+                    
+                    if self.config.debug_decisions:
+                        final_pnl = self.pnl_calculator.calculate_pnl(
+                            self.current_trade.entry_price, exit_price, 
+                            self.current_trade.remaining_size * exit_percent, self.current_trade.direction
+                        )[0]
+                        print(f"     Exit price: {exit_price:.5f} | Exit P&L: ${final_pnl:,.0f}")
                     
                     # Execute exit (partial or full)
                     if exit_percent < 1.0:
@@ -780,6 +819,8 @@ class OptimizedProdStrategy:
                         )
                     
                     if completed_trade is not None:
+                        if self.config.debug_decisions:
+                            print(f"  🏁 TRADE COMPLETED: Final P&L ${completed_trade.pnl:,.0f} | Total trades: {len(self.trades) + 1}")
                         self.trades.append(self.current_trade)
                         self.current_trade = None
             
@@ -790,21 +831,44 @@ class OptimizedProdStrategy:
                 if entry_result is not None:
                     direction, is_relaxed = entry_result
                     
+                    if self.config.debug_decisions:
+                        entry_type = "RELAXED" if is_relaxed else "STANDARD"
+                        print(f"  🎯 ENTRY SIGNAL: {entry_type} {direction.value}")
+                        print(f"     Conditions: NTI={current_row['NTI_Direction']}, MB={current_row['MB_Bias']}, IC={current_row['IC_Regime']}")
+                    
                     # Create new trade
                     self.current_trade = self._create_new_trade(
                         current_time, current_row, direction, is_relaxed
                     )
+                    
+                    if self.config.debug_decisions:
+                        size_millions = self.current_trade.position_size / self.config.min_lot_size
+                        print(f"     Entry: {self.current_trade.entry_price:.5f} | Size: {size_millions:.1f}M")
+                        print(f"     SL: {self.current_trade.stop_loss:.5f} | TPs: {[f'{tp:.5f}' for tp in self.current_trade.take_profits]}")
                     
                     if self.config.verbose:
                         size_millions = self.current_trade.position_size / self.config.min_lot_size
                         trade_type = "RELAXED" if is_relaxed else "STANDARD"
                         logger.info(f"{trade_type} TRADE: {direction.value} at {self.current_trade.entry_price:.5f} "
                                    f"with {size_millions:.0f}M")
+                else:
+                    # Debug why no entry was taken
+                    if self.config.debug_decisions and idx % 500 == 0:  # Every 500 rows when no trade
+                        print(f"  ⏸️  NO ENTRY: NTI={current_row['NTI_Direction']}, MB={current_row['MB_Bias']}, IC={current_row['IC_Regime']}")
+        
+        if self.config.debug_decisions:
+            print(f"\n=== BACKTEST COMPLETED ===")
+            print(f"Total trades executed: {len(self.trades)}")
+            if self.current_trade is not None:
+                print("Warning: Trade still open at end of data")
         
         # Close any remaining trade
         if self.current_trade is not None:
             last_row = df.iloc[-1]
             last_time = df.index[-1]
+            
+            if self.config.debug_decisions:
+                print(f"🏁 CLOSING FINAL TRADE at end of data: {last_row['Close']:.5f}")
             
             completed_trade = self._execute_full_exit(
                 self.current_trade, last_time, last_row['Close'], ExitReason.END_OF_DATA

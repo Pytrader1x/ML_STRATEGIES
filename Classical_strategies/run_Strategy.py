@@ -22,7 +22,7 @@ warnings.filterwarnings('ignore')
 __version__ = "2.1.0"
 
 
-def create_config_1_ultra_tight_risk():
+def create_config_1_ultra_tight_risk(debug_mode=False):
     """
     Configuration 1: Ultra-Tight Risk Management
     Achieved Sharpe Ratio: 1.171 on AUDUSD
@@ -51,7 +51,8 @@ def create_config_1_ultra_tight_risk():
         partial_profit_size_percent=0.5,
         intelligent_sizing=False,
         sl_volatility_adjustment=True,
-        verbose=False
+        verbose=False,
+        debug_decisions=debug_mode
     )
     return OptimizedProdStrategy(config)
 
@@ -85,7 +86,8 @@ def create_config_2_scalping():
         partial_profit_size_percent=0.7,
         intelligent_sizing=False,
         sl_volatility_adjustment=True,
-        verbose=False
+        verbose=False,
+        debug_decisions=False
     )
     return OptimizedProdStrategy(config)
 
@@ -403,17 +405,13 @@ def generate_calendar_year_analysis(results_df, config_name, currency=None, show
         
         plt.tight_layout()
         
-        # Save if requested
-        if save_plots:
-            plot_filename = f'results/{currency}_{config_name.replace(":", "").replace(" ", "_").lower()}_calendar_year.png'
-            plt.savefig(plot_filename, dpi=150, bbox_inches='tight')
-            print(f"Calendar year plot saved to {plot_filename}")
+        # Always save calendar plots to charts directory
+        plot_filename = f'charts/{currency}_{config_name.replace(":", "").replace(" ", "_").lower()}_calendar_year.png'
+        plt.savefig(plot_filename, dpi=150, bbox_inches='tight')
+        print(f"Calendar year plot saved to {plot_filename}")
         
-        # Show if requested
-        if show_plots:
-            plt.show()
-        else:
-            plt.close()
+        # Never show calendar plots - just close them
+        plt.close()
     
     return yearly_stats
 
@@ -561,34 +559,35 @@ def run_multi_currency_mode(currencies=['GBPUSD', 'EURUSD', 'USDJPY', 'NZDUSD', 
 
 def generate_comparison_plots(all_results, currency, show_plots=False, save_plots=False):
     """Generate comparison plots for single currency mode"""
-    # First, show the trading charts for last iteration of each config
+    # First, handle the trading charts for last iteration of each config
     for config_name, config_data in all_results.items():
         if 'last_sample_df' in config_data and 'last_results' in config_data:
-            print(f"\nGenerating trading chart for {config_name} - Last Iteration...")
-            
-            try:
-                # Generate the actual trading chart
-                fig = plot_production_results(
-                    df=config_data['last_sample_df'],
-                    results=config_data['last_results'],
-                    title=f"{config_name} - Last Iteration\nSharpe={config_data['last_results']['sharpe_ratio']:.3f}, P&L=${config_data['last_results']['total_pnl']:,.0f}",
-                    show_pnl=True,
-                    show=show_plots
-                )
+            if show_plots or save_plots:
+                print(f"\nGenerating trading chart for {config_name} - Last Iteration...")
                 
-                # Save if requested
-                if save_plots and fig is not None:
-                    plot_filename = f'results/{currency}_{config_name.replace(":", "").replace(" ", "_").lower()}_last_iteration.png'
-                    fig.savefig(plot_filename, dpi=150, bbox_inches='tight')
-                    print(f"Trading chart saved to {plot_filename}")
+                try:
+                    # Generate the actual trading chart
+                    fig = plot_production_results(
+                        df=config_data['last_sample_df'],
+                        results=config_data['last_results'],
+                        title=f"{config_name} - Last Iteration\nSharpe={config_data['last_results']['sharpe_ratio']:.3f}, P&L=${config_data['last_results']['total_pnl']:,.0f}",
+                        show_pnl=True,
+                        show=show_plots  # Only show if show_plots is True
+                    )
                     
-                if not show_plots and fig is not None:
-                    plt.close(fig)
-                    
-            except Exception as e:
-                print(f"Warning: Could not generate trading chart for {config_name}: {e}")
+                    # Save trade chart if save_plots is enabled
+                    if save_plots and fig is not None:
+                        plot_filename = f'charts/{currency}_{config_name.replace(":", "").replace(" ", "_").lower()}_trades.png'
+                        fig.savefig(plot_filename, dpi=150, bbox_inches='tight')
+                        print(f"Trading chart saved to {plot_filename}")
+                        
+                    if not show_plots and fig is not None:
+                        plt.close(fig)
+                        
+                except Exception as e:
+                    print(f"Warning: Could not generate trading chart for {config_name}: {e}")
     
-    # Now generate the summary comparison plots
+    # Always generate and save the summary comparison plots to charts directory
     fig, axes = plt.subplots(2, 2, figsize=(15, 10))
     fig.suptitle(f'{currency} - Monte Carlo Analysis Comparison', fontsize=16)
     
@@ -650,17 +649,13 @@ def generate_comparison_plots(all_results, currency, show_plots=False, save_plot
     
     plt.tight_layout()
     
-    # Save plot if requested
-    if save_plots:
-        plot_filename = f'results/{currency}_monte_carlo_comparison.png'
-        plt.savefig(plot_filename, dpi=150, bbox_inches='tight')
-        print(f"\nComparison plot saved to {plot_filename}")
+    # Always save metrics comparison plot to charts directory
+    metrics_filename = f'charts/{currency}_metrics_comparison.png'
+    plt.savefig(metrics_filename, dpi=150, bbox_inches='tight')
+    print(f"\nMetrics comparison chart saved to {metrics_filename}")
     
-    # Show plot if requested
-    if show_plots:
-        plt.show()
-    else:
-        plt.close()
+    # Never show the metrics plot - just close it
+    plt.close()
 
 
 def generate_multi_currency_summary(all_results, currencies):
@@ -1335,11 +1330,44 @@ def generate_crypto_comparison_plot(results, crypto):
     
     plt.tight_layout()
     
-    # Save plot
-    plot_filename = f'results/{crypto.lower()}_crypto_strategy_comparison.png'
+    # Save plot to charts directory
+    plot_filename = f'charts/{crypto.lower()}_crypto_strategy_comparison.png'
     plt.savefig(plot_filename, dpi=150, bbox_inches='tight')
     print(f"\nComparison plot saved to {plot_filename}")
     plt.close()
+
+
+def run_debug_test(currency='AUDUSD', sample_size=1000):
+    """Run a small debug test to examine decision logic"""
+    print("="*80)
+    print("DEBUG MODE - DETAILED TRADE DECISION ANALYSIS")
+    print(f"Testing {currency} with {sample_size} rows to check for look-ahead bias")
+    print("="*80)
+    
+    # Load data
+    df = load_and_prepare_data(currency)
+    
+    # Take a small sample from the middle of the dataset
+    start_idx = len(df) // 2
+    end_idx = start_idx + sample_size
+    sample_df = df.iloc[start_idx:end_idx].copy()
+    
+    print(f"Using data from row {start_idx} to {end_idx}")
+    print(f"Date range: {sample_df.index[0]} to {sample_df.index[-1]}")
+    
+    # Create debug-enabled strategy
+    strategy = create_config_1_ultra_tight_risk(debug_mode=True)
+    
+    # Run backtest with debug output
+    results = strategy.run_backtest(sample_df)
+    
+    print(f"\n=== DEBUG TEST RESULTS ===")
+    print(f"Total trades: {results['total_trades']}")
+    print(f"Win rate: {results['win_rate']:.1f}%")
+    print(f"Total P&L: ${results['total_pnl']:,.0f}")
+    print(f"Sharpe ratio: {results['sharpe_ratio']:.3f}")
+    
+    return results
 
 
 def main():
@@ -1489,15 +1517,23 @@ ANALYSIS:
                        help='Save charts as PNG files in results folder (default: disabled)')
     parser.add_argument('--no-save-plots', dest='save_plots', action='store_false',
                        help='Disable saving charts to PNG files (this is the default)')
+    parser.add_argument('--debug', action='store_true',
+                       help='Enable detailed decision logging to check for look-ahead bias')
     parser.add_argument('--version', '-v', action='version', 
                        version=f'Monte Carlo Strategy Tester v{__version__}')
     
     args = parser.parse_args()
     
-    # Create results directory if it doesn't exist
+    # Create results and charts directories if they don't exist
     os.makedirs('results', exist_ok=True)
+    os.makedirs('charts', exist_ok=True)
     
     print(f"Starting Strategy Runner - {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+    
+    # Handle debug mode
+    if args.debug:
+        run_debug_test(currency=args.currency, sample_size=args.sample_size)
+        return
     
     if args.mode == 'single':
         run_single_currency_mode(
