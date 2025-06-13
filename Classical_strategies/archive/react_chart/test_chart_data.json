@@ -1,0 +1,67 @@
+{
+  "metadata": {
+    "symbol": "TEST",
+    "timeframe": "15M",
+    "start_date": "2023-01-01 00:00:00",
+    "end_date": "2023-01-01 00:30:00",
+    "total_rows": 3
+  },
+  "ohlc": [
+    {
+      "time": 1672531200,
+      "open": 1.0,
+      "high": 1.05,
+      "low": 0.95,
+      "close": 1.02
+    },
+    {
+      "time": 1672532100,
+      "open": 1.1,
+      "high": 1.15,
+      "low": 1.05,
+      "close": 1.12
+    },
+    {
+      "time": 1672533000,
+      "open": 1.2,
+      "high": 1.25,
+      "low": 1.15,
+      "close": 1.22
+    }
+  ],
+  "indicators": {
+    "neurotrend": {
+      "fast_ema": [],
+      "slow_ema": [],
+      "direction": []
+    },
+    "market_bias": {
+      "bias": [],
+      "o2": [],
+      "h2": [],
+      "l2": [],
+      "c2": []
+    },
+    "intelligent_chop": {
+      "regime": [],
+      "regime_name": []
+    }
+  },
+  "trades": [],
+  "performance": {
+    "position_sizes": [],
+    "cumulative_pnl": [],
+    "returns": []
+  },
+  "metrics": {
+    "total_trades": 0,
+    "winning_trades": 0,
+    "losing_trades": 0,
+    "win_rate": 0,
+    "sharpe_ratio": 0,
+    "max_drawdown": 0,
+    "total_return": 0,
+    "profit_factor": 0,
+    "total_pnl": 0
+  }
+}

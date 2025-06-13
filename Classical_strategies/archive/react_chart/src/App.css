@@ -1,0 +1,143 @@
+.app {
+  min-height: 100vh;
+  background-color: #0d1117;
+  color: #c9d1d9;
+}
+
+.app-header {
+  background-color: #161b22;
+  border-bottom: 1px solid #30363d;
+  padding: 20px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.app-header h1 {
+  margin: 0;
+  font-size: 28px;
+  font-weight: 600;
+  color: #ffffff;
+}
+
+.header-controls {
+  display: flex;
+  gap: 15px;
+  align-items: center;
+}
+
+.reload-button {
+  background-color: #238636;
+  color: white;
+  border: none;
+  padding: 8px 16px;
+  border-radius: 6px;
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background-color 0.2s;
+}
+
+.reload-button:hover {
+  background-color: #2ea043;
+}
+
+.file-upload {
+  position: relative;
+  background-color: #21262d;
+  color: #c9d1d9;
+  border: 1px solid #30363d;
+  padding: 8px 16px;
+  border-radius: 6px;
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.file-upload:hover {
+  background-color: #30363d;
+  border-color: #8b949e;
+}
+
+.file-upload input[type="file"] {
+  position: absolute;
+  width: 100%;
+  height: 100%;
+  top: 0;
+  left: 0;
+  opacity: 0;
+  cursor: pointer;
+}
+
+.chart-toggle {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background-color: #21262d;
+  color: #c9d1d9;
+  border: 1px solid #30363d;
+  padding: 8px 16px;
+  border-radius: 6px;
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.chart-toggle:hover {
+  background-color: #30363d;
+  border-color: #8b949e;
+}
+
+.chart-toggle input[type="checkbox"] {
+  cursor: pointer;
+}
+
+.app-main {
+  padding: 20px;
+}
+
+.loading-container {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  align-items: center;
+  min-height: 400px;
+  gap: 20px;
+}
+
+.loading-spinner {
+  width: 50px;
+  height: 50px;
+  border: 4px solid #30363d;
+  border-top-color: #58a6ff;
+  border-radius: 50%;
+  animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.error-container {
+  background-color: #161b22;
+  border: 1px solid #f85149;
+  border-radius: 6px;
+  padding: 20px;
+  margin: 20px auto;
+  max-width: 600px;
+  text-align: center;
+}
+
+.error-container p {
+  margin: 10px 0;
+  color: #f85149;
+}
+
+.error-container p:last-child {
+  color: #8b949e;
+  font-size: 14px;
+}

@@ -1,0 +1,78 @@
+{
+  "metadata": {
+    "symbol": "TEST",
+    "timeframe": "1D",
+    "start_date": "2024-01-01",
+    "end_date": "2024-01-10",
+    "total_rows": 10
+  },
+  "ohlc": [
+    {"time": 1704067200000, "open": 100, "high": 102, "low": 99, "close": 101},
+    {"time": 1704153600000, "open": 101, "high": 103, "low": 100, "close": 102},
+    {"time": 1704240000000, "open": 102, "high": 104, "low": 101, "close": 103},
+    {"time": 1704326400000, "open": 103, "high": 105, "low": 102, "close": 104},
+    {"time": 1704412800000, "open": 104, "high": 106, "low": 103, "close": 105},
+    {"time": 1704499200000, "open": 105, "high": 107, "low": 104, "close": 106},
+    {"time": 1704585600000, "open": 106, "high": 108, "low": 105, "close": 107},
+    {"time": 1704672000000, "open": 107, "high": 109, "low": 106, "close": 108},
+    {"time": 1704758400000, "open": 108, "high": 110, "low": 107, "close": 109},
+    {"time": 1704844800000, "open": 109, "high": 111, "low": 108, "close": 110}
+  ],
+  "indicators": {
+    "neurotrend": {
+      "fast_ema": [
+        {"time": 1704067200000, "value": 100.5},
+        {"time": 1704153600000, "value": 101.5},
+        {"time": 1704240000000, "value": 102.5},
+        {"time": 1704326400000, "value": 103.5},
+        {"time": 1704412800000, "value": 104.5}
+      ],
+      "slow_ema": [
+        {"time": 1704067200000, "value": 100},
+        {"time": 1704153600000, "value": 101},
+        {"time": 1704240000000, "value": 102},
+        {"time": 1704326400000, "value": 103},
+        {"time": 1704412800000, "value": 104}
+      ],
+      "direction": []
+    },
+    "market_bias": {
+      "bias": [],
+      "o2": [],
+      "h2": [],
+      "l2": [],
+      "c2": []
+    },
+    "intelligent_chop": {
+      "regime": [],
+      "regime_name": []
+    }
+  },
+  "trades": [
+    {
+      "entry_time": 1704153600000,
+      "exit_time": 1704326400000,
+      "entry_price": 101,
+      "exit_price": 104,
+      "direction": "LONG",
+      "exit_reason": "TAKE_PROFIT",
+      "pnl": 3,
+      "pnl_pct": 2.97
+    }
+  ],
+  "performance": {
+    "position_sizes": [],
+    "cumulative_pnl": [],
+    "returns": []
+  },
+  "metrics": {
+    "total_trades": 1,
+    "winning_trades": 1,
+    "losing_trades": 0,
+    "win_rate": 1.0,
+    "sharpe_ratio": 2.5,
+    "max_drawdown": 0.05,
+    "total_return": 0.10,
+    "profit_factor": 3.0
+  }
+}
