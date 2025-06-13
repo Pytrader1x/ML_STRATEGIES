@@ -28,7 +28,7 @@ def create_config_1_ultra_tight_risk():
     Achieved Sharpe Ratio: 1.171 on AUDUSD
     """
     config = OptimizedStrategyConfig(
-        initial_capital=100_000,
+        initial_capital=1_000_000,
         risk_per_trade=0.002,  # 0.2% risk per trade
         sl_max_pips=10.0,
         sl_atr_multiplier=1.0,
@@ -62,7 +62,7 @@ def create_config_2_scalping():
     Achieved Sharpe Ratio: 1.146 on AUDUSD
     """
     config = OptimizedStrategyConfig(
-        initial_capital=100_000,
+        initial_capital=1_000_000,
         risk_per_trade=0.001,  # 0.1% risk per trade
         sl_max_pips=5.0,
         sl_atr_multiplier=0.5,
@@ -1094,7 +1094,7 @@ class FinalCryptoStrategy:
 def create_crypto_conservative_config():
     """Conservative crypto configuration - focus on high probability"""
     return {
-        'initial_capital': 100000,
+        'initial_capital': 1_000_000,
         'risk_per_trade': 0.002,  # 0.2% risk
         'max_position_pct': 0.10,  # 10% max position
         
@@ -1118,7 +1118,7 @@ def create_crypto_conservative_config():
 def create_crypto_moderate_config():
     """Moderate crypto configuration - balanced approach"""
     return {
-        'initial_capital': 100000,
+        'initial_capital': 1_000_000,
         'risk_per_trade': 0.0025,  # 0.25% risk
         'max_position_pct': 0.15,  # 15% max position
         
