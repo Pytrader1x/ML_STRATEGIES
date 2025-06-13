@@ -21,6 +21,51 @@ from strategy_code.Prod_strategy import (
 from real_time_data_generator import RealTimeDataGenerator
 
 
+def annualization_factor(timestamps: List[datetime]) -> float:
+    """
+    Automatically detect data frequency and return appropriate annualization factor.
+    
+    Args:
+        timestamps: List of datetime timestamps from the data
+        
+    Returns:
+        Square root of periods per year for Sharpe ratio calculation
+    """
+    if len(timestamps) < 2:
+        return np.sqrt(252)  # Default to daily
+    
+    # Convert to numpy array for easier manipulation
+    ts_array = pd.to_datetime(timestamps)
+    
+    # Calculate median time difference in seconds
+    time_diffs = np.diff(ts_array).astype('timedelta64[s]').astype(float)
+    median_seconds = np.median(time_diffs)
+    
+    if median_seconds == 0:
+        return np.sqrt(252)  # Fallback to daily
+    
+    # Calculate periods per year based on median interval
+    seconds_per_year = 365.25 * 24 * 3600
+    periods_per_year = seconds_per_year / median_seconds
+    
+    # Common timeframes for validation
+    if 840 <= median_seconds <= 960:  # 14-16 minutes
+        print(f"Detected 15-minute bars: {periods_per_year:.0f} periods/year")
+        return np.sqrt(252 * 96)  # 96 fifteen-minute bars per trading day
+    elif 3300 <= median_seconds <= 3900:  # 55-65 minutes
+        print(f"Detected hourly bars: {periods_per_year:.0f} periods/year")
+        return np.sqrt(252 * 24)  # 24 hourly bars per trading day
+    elif 14000 <= median_seconds <= 15000:  # ~4 hours
+        print(f"Detected 4-hour bars: {periods_per_year:.0f} periods/year")
+        return np.sqrt(252 * 6)  # 6 four-hour bars per trading day
+    elif 82800 <= median_seconds <= 93600:  # ~23-26 hours
+        print(f"Detected daily bars: {periods_per_year:.0f} periods/year")
+        return np.sqrt(252)  # Daily bars
+    else:
+        print(f"Detected custom interval: {median_seconds:.0f} seconds, {periods_per_year:.0f} periods/year")
+        return np.sqrt(periods_per_year)
+
+
 @dataclass
 class RealTimeTradeEvent:
     """Records a real-time trading event"""
@@ -59,6 +104,7 @@ class RealTimeStrategySimulator:
     def run_real_time_simulation(self, currency_pair: str = 'AUDUSD', 
                                 rows_to_simulate: int = 8000,
                                 start_date: str = None,
+                                start_idx: int = None,
                                 verbose: bool = True) -> Dict[str, Any]:
         """
         Run a real-time simulation of the strategy
@@ -86,7 +132,8 @@ class RealTimeStrategySimulator:
         # Get sample period
         start_idx, end_idx = data_generator.get_sample_period(
             start_date=start_date, 
-            rows=rows_to_simulate
+            rows=rows_to_simulate,
+            start_idx=start_idx
         )
         
         # Reset strategy state
@@ -145,7 +192,7 @@ class RealTimeStrategySimulator:
             self._close_final_trade(verbose)
         
         # Calculate final results
-        results = self._calculate_simulation_results(row_count)
+        results = self._calculate_simulation_results(row_count, data_generator, start_idx, end_idx)
         
         if verbose:
             self._print_final_results(results)
@@ -400,7 +447,7 @@ class RealTimeStrategySimulator:
         print(f"\\nProgress: {progress:5.1f}% ({current_row:,}/{total_rows:,}) | "
               f"Capital: ${current_capital:,.0f} | Trades: {total_trades}")
     
-    def _calculate_simulation_results(self, rows_processed: int) -> Dict[str, Any]:
+    def _calculate_simulation_results(self, rows_processed: int, data_generator=None, start_idx=None, end_idx=None) -> Dict[str, Any]:
         """Calculate final simulation results"""
         final_capital = self.capital_history[-1] if self.capital_history else self.config.initial_capital
         total_return = (final_capital - self.config.initial_capital) / self.config.initial_capital * 100
@@ -415,10 +462,44 @@ class RealTimeStrategySimulator:
         avg_loss = np.mean([t.pnl for t in losing_trades]) if losing_trades else 0
         
         # Calculate Sharpe ratio from equity curve
-        if len(self.capital_history) > 1:
-            returns = np.diff(self.capital_history) / self.capital_history[:-1]
-            returns = returns[returns != 0]
-            sharpe_ratio = np.mean(returns) / np.std(returns) * np.sqrt(252) if len(returns) > 1 and np.std(returns) > 0 else 0
+        if len(self.capital_history) > 1 and len(self.indicator_history) > 1:
+            # Create a time series of capital values with timestamps
+            timestamps = [ih['timestamp'] for ih in self.indicator_history]
+            
+            # Ensure we have matching lengths
+            min_length = min(len(timestamps), len(self.capital_history))
+            
+            # Create DataFrame for easier manipulation
+            equity_df = pd.DataFrame({
+                'timestamp': timestamps[:min_length],
+                'capital': self.capital_history[:min_length]
+            })
+            equity_df['timestamp'] = pd.to_datetime(equity_df['timestamp'])
+            equity_df.set_index('timestamp', inplace=True)
+            
+            # Aggregate to daily returns to remove intraday serial correlation
+            # Use last value of each day
+            daily_equity = equity_df.resample('D').last().dropna()
+            
+            if len(daily_equity) > 1:
+                # Calculate daily returns
+                daily_returns = daily_equity['capital'].pct_change().dropna()
+                
+                # Calculate Sharpe with standard 252 trading days
+                if len(daily_returns) > 1 and daily_returns.std(ddof=1) > 0:
+                    # Annual Sharpe = daily_mean / daily_std * sqrt(252)
+                    sharpe_ratio = daily_returns.mean() / daily_returns.std(ddof=1) * np.sqrt(252)
+                else:
+                    sharpe_ratio = 0
+            else:
+                # Not enough daily data, fallback to bar-level calculation
+                returns = np.diff(self.capital_history) / self.capital_history[:-1]
+                if len(returns) > 1 and np.std(returns, ddof=1) > 0:
+                    # Detect data frequency for annualization
+                    ann_factor = annualization_factor(timestamps)
+                    sharpe_ratio = np.mean(returns) / np.std(returns, ddof=1) * ann_factor
+                else:
+                    sharpe_ratio = 0
         else:
             sharpe_ratio = 0
         
@@ -427,7 +508,7 @@ class RealTimeStrategySimulator:
             equity_array = np.array(self.capital_history)
             running_max = np.maximum.accumulate(equity_array)
             drawdown = (equity_array - running_max) / running_max * 100
-            max_drawdown = np.min(drawdown)
+            max_drawdown = abs(np.min(drawdown))  # Convert to positive magnitude
         else:
             max_drawdown = 0
         
@@ -440,7 +521,10 @@ class RealTimeStrategySimulator:
             'simulation_summary': {
                 'rows_processed': rows_processed,
                 'simulation_duration': datetime.now() - self.simulation_start_time,
-                'events_recorded': len(self.events)
+                'events_recorded': len(self.events),
+                'data_generator': data_generator,  # Store the generator
+                'start_idx': start_idx,
+                'end_idx': end_idx
             },
             'performance_metrics': {
                 'initial_capital': self.config.initial_capital,

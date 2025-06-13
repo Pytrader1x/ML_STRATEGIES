@@ -26,6 +26,43 @@ logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(level
 logger = logging.getLogger(__name__)
 
 
+def annualization_factor_from_df(df: pd.DataFrame) -> float:
+    """
+    Automatically detect data frequency from DataFrame index and return annualization factor.
+    
+    Args:
+        df: DataFrame with DatetimeIndex
+        
+    Returns:
+        Square root of periods per year for Sharpe ratio calculation
+    """
+    if not isinstance(df.index, pd.DatetimeIndex) or len(df) < 2:
+        return np.sqrt(252)  # Default to daily
+    
+    # Calculate median time difference in seconds
+    time_diffs = df.index.to_series().diff().dt.total_seconds().dropna()
+    median_seconds = time_diffs.median()
+    
+    if median_seconds == 0 or pd.isna(median_seconds):
+        return np.sqrt(252)  # Fallback to daily
+    
+    # Calculate periods per year based on median interval
+    seconds_per_year = 365.25 * 24 * 3600
+    periods_per_year = seconds_per_year / median_seconds
+    
+    # Common timeframes for validation
+    if 840 <= median_seconds <= 960:  # 14-16 minutes
+        return np.sqrt(252 * 96)  # 96 fifteen-minute bars per trading day
+    elif 3300 <= median_seconds <= 3900:  # 55-65 minutes
+        return np.sqrt(252 * 24)  # 24 hourly bars per trading day
+    elif 14000 <= median_seconds <= 15000:  # ~4 hours
+        return np.sqrt(252 * 6)  # 6 four-hour bars per trading day
+    elif 82800 <= median_seconds <= 93600:  # ~23-26 hours
+        return np.sqrt(252)  # Daily bars
+    else:
+        return np.sqrt(periods_per_year)
+
+
 # ============================================================================
 # Enums and Constants
 # ============================================================================
@@ -211,6 +248,13 @@ class OptimizedStrategyConfig:
     # Capital and risk management
     initial_capital: float = 100_000
     risk_per_trade: float = 0.02
+    
+    # Realistic costs mode
+    realistic_costs: bool = False
+    entry_slippage_pips: float = 0.5  # Random slippage up to this amount
+    stop_loss_slippage_pips: float = 2.0  # Up to 2 pips slippage on stop loss
+    trailing_stop_slippage_pips: float = 1.0  # Up to 1 pip slippage on trailing stop
+    take_profit_slippage_pips: float = 0.0  # No slippage on limit orders (TPs)
     
     # Take profit configuration
     tp_atr_multipliers: Tuple[float, float, float] = (0.8, 1.5, 2.5)
@@ -558,6 +602,9 @@ class OptimizedProdStrategy:
         
         # Initialize state
         self.reset()
+        
+        # Initialize random number generator for slippage
+        np.random.seed(None)  # Use current time as seed for randomness
     
     def reset(self):
         """Reset strategy state"""
@@ -566,6 +613,56 @@ class OptimizedProdStrategy:
         self.current_trade: Optional[Trade] = None
         self.equity_curve = [self.config.initial_capital]
         self.partial_profit_taken = {}  # Track partial profits per trade
+    
+    def _apply_slippage(self, price: float, order_type: str, direction: TradeDirection) -> float:
+        """Apply realistic slippage based on order type and direction
+        
+        Args:
+            price: Base price
+            order_type: 'entry', 'stop_loss', 'trailing_stop', 'take_profit'
+            direction: Trade direction (LONG or SHORT)
+            
+        Returns:
+            Price with slippage applied
+        """
+        if not self.config.realistic_costs:
+            return price
+        
+        # Determine slippage amount based on order type
+        if order_type == 'entry':
+            # Random slippage for market entries
+            slippage_pips = np.random.uniform(0, self.config.entry_slippage_pips)
+        elif order_type == 'stop_loss':
+            # Worse slippage for stop losses (always against us)
+            slippage_pips = np.random.uniform(0, self.config.stop_loss_slippage_pips)
+        elif order_type == 'trailing_stop':
+            # Moderate slippage for trailing stops
+            slippage_pips = np.random.uniform(0, self.config.trailing_stop_slippage_pips)
+        elif order_type == 'take_profit':
+            # No slippage for limit orders (take profits)
+            slippage_pips = self.config.take_profit_slippage_pips
+        else:
+            slippage_pips = 0
+        
+        # Convert pips to price
+        slippage_amount = slippage_pips * FOREX_PIP_SIZE
+        
+        # Apply slippage in the direction that's worse for us
+        if order_type == 'entry':
+            # For entries, we get worse price (buy higher, sell lower)
+            if direction == TradeDirection.LONG:
+                return price + slippage_amount
+            else:
+                return price - slippage_amount
+        elif order_type in ['stop_loss', 'trailing_stop']:
+            # For stops, we get worse fill (sell lower, buy higher)
+            if direction == TradeDirection.LONG:
+                return price - slippage_amount
+            else:
+                return price + slippage_amount
+        else:
+            # Take profits - no slippage (limit orders)
+            return price
     
     def _update_trailing_stop(self, current_price: float, trade: Trade,
                               atr: float) -> Optional[float]:
@@ -675,6 +772,10 @@ class OptimizedProdStrategy:
                          direction: TradeDirection, is_relaxed: bool) -> Trade:
         """Create a new trade with optimized parameters"""
         entry_price = row['Close']
+        
+        # Apply entry slippage if realistic costs mode is enabled
+        entry_price = self._apply_slippage(entry_price, 'entry', direction)
+        
         atr = row['IC_ATR_Normalized']
         confidence = row.get('NTI_Confidence', 50.0)
         
@@ -722,6 +823,9 @@ class OptimizedProdStrategy:
         # Reset state
         self.reset()
         
+        # Store df reference for annualization factor calculation
+        self.df = df
+        
         if self.config.debug_decisions:
             print(f"\n=== STARTING BACKTEST ===")
             print(f"Data period: {df.index[0]} to {df.index[-1]}")
@@ -741,8 +845,20 @@ class OptimizedProdStrategy:
                     print(f"  NTI: {current_row['NTI_Direction']:2.0f} | MB: {current_row['MB_Bias']:2.0f} | IC: {current_row['IC_Regime']:2.0f} ({current_row['IC_RegimeName']})")
                     print(f"  ATR: {current_row['IC_ATR_Normalized']:.5f} | Capital: ${self.current_capital:,.0f}")
             
-            # Update equity curve
-            self.equity_curve.append(self.current_capital)
+            # Calculate mark-to-market equity (including unrealized P&L)
+            equity_value = self.current_capital
+            if self.current_trade is not None:
+                # Add unrealized P&L for open positions
+                unrealized_pnl, _ = self.pnl_calculator.calculate_pnl(
+                    self.current_trade.entry_price,
+                    current_row['Close'],
+                    self.current_trade.remaining_size,
+                    self.current_trade.direction
+                )
+                equity_value += unrealized_pnl
+            
+            # Update equity curve with mark-to-market value
+            self.equity_curve.append(equity_value)
             
             # Process open trade
             if self.current_trade is not None:
@@ -880,19 +996,29 @@ class OptimizedProdStrategy:
         return self._calculate_performance_metrics()
     
     def _get_exit_price(self, row: pd.Series, trade: Trade, exit_reason: ExitReason) -> float:
-        """Determine exit price (same as original)"""
+        """Determine exit price with slippage applied"""
+        base_price = row['Close']
+        
         if 'take_profit' in exit_reason.value:
             tp_index = int(exit_reason.value.split('_')[-1]) - 1
-            return trade.take_profits[tp_index]
+            base_price = trade.take_profits[tp_index]
+            # Apply take profit slippage (should be 0 for limit orders)
+            return self._apply_slippage(base_price, 'take_profit', trade.direction)
         elif exit_reason == ExitReason.TP1_PULLBACK:
-            return trade.take_profits[0]
-        elif exit_reason in [ExitReason.STOP_LOSS, ExitReason.TRAILING_STOP]:
-            if exit_reason == ExitReason.TRAILING_STOP and trade.trailing_stop is not None:
-                return trade.trailing_stop
-            else:
-                return trade.stop_loss
+            base_price = trade.take_profits[0]
+            # TP1 pullback uses limit order, no slippage
+            return self._apply_slippage(base_price, 'take_profit', trade.direction)
+        elif exit_reason == ExitReason.STOP_LOSS:
+            base_price = trade.stop_loss
+            # Apply stop loss slippage
+            return self._apply_slippage(base_price, 'stop_loss', trade.direction)
+        elif exit_reason == ExitReason.TRAILING_STOP:
+            base_price = trade.trailing_stop if trade.trailing_stop is not None else trade.stop_loss
+            # Apply trailing stop slippage
+            return self._apply_slippage(base_price, 'trailing_stop', trade.direction)
         else:
-            return row['Close']
+            # For signal flips and other market exits, use current price with entry slippage
+            return self._apply_slippage(base_price, 'entry', trade.direction)
     
     def _execute_full_exit(self, trade: Trade, exit_time: pd.Timestamp,
                           exit_price: float, exit_reason: ExitReason) -> Trade:
@@ -967,12 +1093,39 @@ class OptimizedProdStrategy:
         equity_array = np.array(self.equity_curve)
         running_max = np.maximum.accumulate(equity_array)
         drawdown = (equity_array - running_max) / running_max * 100
-        max_drawdown = np.min(drawdown)
+        max_drawdown = abs(np.min(drawdown))  # Convert to positive magnitude
         
-        # Sharpe ratio
-        if len(self.equity_curve) > 1:
-            returns = np.diff(self.equity_curve) / self.equity_curve[:-1]
-            sharpe_ratio = np.mean(returns) / np.std(returns) * np.sqrt(252) if np.std(returns) > 0 else 0
+        # Sharpe ratio with daily aggregation
+        if len(self.equity_curve) > 1 and hasattr(self, 'df') and self.df is not None:
+            # Create equity DataFrame with timestamps
+            equity_df = pd.DataFrame({
+                'timestamp': self.df.index[:len(self.equity_curve)],
+                'capital': self.equity_curve
+            })
+            equity_df.set_index('timestamp', inplace=True)
+            
+            # Aggregate to daily returns to remove intraday serial correlation
+            # Use last value of each day (end-of-day equity)
+            daily_equity = equity_df.resample('D').last().dropna()
+            
+            if len(daily_equity) > 1:
+                # Calculate daily returns
+                daily_returns = daily_equity['capital'].pct_change().dropna()
+                
+                # Calculate annualized Sharpe ratio with 252 trading days
+                if len(daily_returns) > 1 and daily_returns.std(ddof=1) > 0:
+                    sharpe_ratio = daily_returns.mean() / daily_returns.std(ddof=1) * np.sqrt(252)
+                else:
+                    sharpe_ratio = 0
+            else:
+                # Not enough daily data, use bar-level calculation as fallback
+                returns = np.diff(self.equity_curve) / self.equity_curve[:-1]
+                if len(returns) > 1 and np.std(returns, ddof=1) > 0:
+                    # Get appropriate annualization factor
+                    ann_factor = annualization_factor_from_df(self.df)
+                    sharpe_ratio = np.mean(returns) / np.std(returns, ddof=1) * ann_factor
+                else:
+                    sharpe_ratio = 0
         else:
             sharpe_ratio = 0
         

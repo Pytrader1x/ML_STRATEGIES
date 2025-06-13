@@ -16,13 +16,14 @@ import argparse
 from dataclasses import dataclass
 from typing import Optional
 import json
+import time
 
 warnings.filterwarnings('ignore')
 
 __version__ = "2.1.0"
 
 
-def create_config_1_ultra_tight_risk(debug_mode=False):
+def create_config_1_ultra_tight_risk(debug_mode=False, realistic_costs=False):
     """
     Configuration 1: Ultra-Tight Risk Management
     Achieved Sharpe Ratio: 1.171 on AUDUSD
@@ -51,13 +52,14 @@ def create_config_1_ultra_tight_risk(debug_mode=False):
         partial_profit_size_percent=0.5,
         intelligent_sizing=False,
         sl_volatility_adjustment=True,
+        realistic_costs=realistic_costs,
         verbose=False,
         debug_decisions=debug_mode
     )
     return OptimizedProdStrategy(config)
 
 
-def create_config_2_scalping():
+def create_config_2_scalping(realistic_costs=False):
     """
     Configuration 2: Scalping Strategy
     Achieved Sharpe Ratio: 1.146 on AUDUSD
@@ -86,6 +88,7 @@ def create_config_2_scalping():
         partial_profit_size_percent=0.7,
         intelligent_sizing=False,
         sl_volatility_adjustment=True,
+        realistic_costs=realistic_costs,
         verbose=False,
         debug_decisions=False
     )
@@ -118,9 +121,36 @@ def load_and_prepare_data(currency_pair, data_path=None):
     
     # Calculate indicators
     print("Calculating indicators...")
+    
+    # Helper function to format time
+    def format_time(seconds):
+        if seconds < 0.1:
+            return f"{seconds * 1000:.0f}ms"
+        elif seconds < 1.0:
+            return f"{seconds * 1000:.0f}ms"
+        else:
+            return f"{seconds:.1f}s"
+    
+    # Neuro Trend Intelligent
+    print("  Calculating Neuro Trend Intelligent...")
+    start_time = time.time()
     df = TIC.add_neuro_trend_intelligent(df)
+    elapsed_time = time.time() - start_time
+    print(f"  ✓ Completed Neuro Trend Intelligent in {format_time(elapsed_time)} ({len(df):,} rows, {len(df)/elapsed_time:,.0f} rows/sec)")
+    
+    # Market Bias
+    print("  Calculating Market Bias...")
+    start_time = time.time()
     df = TIC.add_market_bias(df)
+    elapsed_time = time.time() - start_time
+    print(f"  ✓ Completed Market Bias in {format_time(elapsed_time)} ({len(df):,} rows, {len(df)/elapsed_time:,.0f} rows/sec)")
+    
+    # Intelligent Chop
+    print("  Calculating Intelligent Chop...")
+    start_time = time.time()
     df = TIC.add_intelligent_chop(df)
+    elapsed_time = time.time() - start_time
+    print(f"  ✓ Completed Intelligent Chop in {format_time(elapsed_time)} ({len(df):,} rows, {len(df)/elapsed_time:,.0f} rows/sec)")
     
     return df
 
@@ -256,7 +286,9 @@ def run_single_monte_carlo(df, strategy, n_iterations, sample_size, return_last_
         'max_consecutive_losses': [],
         'avg_consecutive_losses': [],
         'num_wins': [],
-        'num_losses': []
+        'num_losses': [],
+        'avg_win_pips': [],
+        'avg_loss_pips': []
     }
     
     for i in range(n_iterations):
@@ -273,6 +305,55 @@ def run_single_monte_carlo(df, strategy, n_iterations, sample_size, return_last_
         
         # Calculate trade statistics
         trade_stats = calculate_trade_statistics(results)
+        
+        # Calculate pip-based metrics if trades are available
+        if 'trades' in results and results['trades']:
+            # Extract pip gains and losses
+            pip_gains = []
+            pip_losses = []
+            
+            for trade in results['trades']:
+                # Handle both Trade objects and dictionaries
+                if hasattr(trade, 'entry_price'):
+                    entry_price = trade.entry_price
+                    exit_price = trade.exit_price
+                    direction = trade.direction
+                    pnl = trade.pnl
+                else:
+                    # Dictionary format
+                    entry_price = trade.get('entry_price')
+                    exit_price = trade.get('exit_price')
+                    direction = trade.get('direction')
+                    pnl = trade.get('pnl')
+                
+                if entry_price and exit_price and pnl is not None:
+                    # Calculate pips based on direction
+                    if hasattr(direction, 'value'):
+                        direction_val = direction.value
+                    else:
+                        direction_val = direction
+                    
+                    if direction_val == 'long':
+                        pips = (exit_price - entry_price) / 0.0001
+                    else:
+                        pips = (entry_price - exit_price) / 0.0001
+                    
+                    # Categorize as gain or loss
+                    if pnl > 0:
+                        pip_gains.append(abs(pips))
+                    elif pnl < 0:
+                        pip_losses.append(abs(pips))
+            
+            # Calculate averages
+            avg_win_pips = np.mean(pip_gains) if pip_gains else 0
+            avg_loss_pips = np.mean(pip_losses) if pip_losses else 0
+            
+            trade_stats['avg_win_pips'] = avg_win_pips
+            trade_stats['avg_loss_pips'] = avg_loss_pips
+        else:
+            trade_stats['avg_win_pips'] = 0
+            trade_stats['avg_loss_pips'] = 0
+        
         for key in all_trade_stats:
             all_trade_stats[key].append(trade_stats.get(key, 0))
         
@@ -307,7 +388,8 @@ def run_single_monte_carlo(df, strategy, n_iterations, sample_size, return_last_
         # Print progress with latest results
         if (i + 1) % 10 == 0 or i == 0 or i == n_iterations - 1:
             print(f"  [{i + 1:3d}/{n_iterations}] Sharpe: {results['sharpe_ratio']:>6.3f} | Return: {results['total_return']:>6.1f}% | " +
-                  f"WR: {results['win_rate']:>5.1f}% | Trades: {results['total_trades']:>4} ({trade_stats['num_wins']}W/{trade_stats['num_losses']}L)")
+                  f"WR: {results['win_rate']:>5.1f}% | Trades: {results['total_trades']:>4} ({trade_stats['num_wins']}W/{trade_stats['num_losses']}L) | " +
+                  f"Pips: +{trade_stats.get('avg_win_pips', 0):>4.1f}/-{trade_stats.get('avg_loss_pips', 0):>4.1f}")
     
     # Create results dataframe
     results_df = pd.DataFrame(iteration_results)
@@ -319,7 +401,9 @@ def run_single_monte_carlo(df, strategy, n_iterations, sample_size, return_last_
         'avg_max_consecutive_losses': np.mean(all_trade_stats['max_consecutive_losses']),
         'avg_avg_consecutive_losses': np.mean(all_trade_stats['avg_consecutive_losses']),
         'avg_num_wins': np.mean(all_trade_stats['num_wins']),
-        'avg_num_losses': np.mean(all_trade_stats['num_losses'])
+        'avg_num_losses': np.mean(all_trade_stats['num_losses']),
+        'avg_win_pips': np.mean(all_trade_stats['avg_win_pips']),
+        'avg_loss_pips': np.mean(all_trade_stats['avg_loss_pips'])
     }
     
     if return_last_sample:
@@ -418,7 +502,7 @@ def generate_calendar_year_analysis(results_df, config_name, currency=None, show
 
 def run_single_currency_mode(currency='AUDUSD', n_iterations=50, sample_size=8000, 
                            enable_plots=True, enable_calendar_analysis=True,
-                           show_plots=False, save_plots=False):
+                           show_plots=False, save_plots=False, realistic_costs=False):
     """Run Monte Carlo testing on a single currency pair with both configurations"""
     
     print("="*80)
@@ -426,13 +510,34 @@ def run_single_currency_mode(currency='AUDUSD', n_iterations=50, sample_size=800
     print(f"Iterations: {n_iterations} | Sample Size: {sample_size:,} rows")
     print("="*80)
     
+    # Print trading mode box
+    print("\n┌─────────────────────────────────────────────────────────────────────────────┐")
+    if realistic_costs:
+        print("│                         🎯 REALISTIC TRADING MODE 🎯                        │")
+        print("├─────────────────────────────────────────────────────────────────────────────┤")
+        print("│  • Market Entry Orders:    0.0 - 0.5 pips random slippage                  │")
+        print("│  • Stop Loss Orders:       0.0 - 2.0 pips slippage (worse fill)            │")
+        print("│  • Trailing Stop Orders:   0.0 - 1.0 pips slippage (worse fill)            │")
+        print("│  • Take Profit Orders:     0.0 pips (limit orders - perfect fill)          │")
+        print("│                                                                             │")
+        print("│  This mode simulates real market conditions with execution costs.           │")
+    else:
+        print("│                         ⚡ PERFECT EXECUTION MODE ⚡                        │")
+        print("├─────────────────────────────────────────────────────────────────────────────┤")
+        print("│  • All orders execute at exact prices                                      │")
+        print("│  • No slippage or transaction costs                                        │")
+        print("│  • Theoretical best-case scenario                                          │")
+        print("│                                                                             │")
+        print("│  ⚠️  WARNING: Results may be overly optimistic for live trading            │")
+    print("└─────────────────────────────────────────────────────────────────────────────┘\n")
+    
     # Load data
     df = load_and_prepare_data(currency)
     
     # Test both configurations
     configs = [
-        ("Config 1: Ultra-Tight Risk Management", create_config_1_ultra_tight_risk()),
-        ("Config 2: Scalping Strategy", create_config_2_scalping())
+        ("Config 1: Ultra-Tight Risk Management", create_config_1_ultra_tight_risk(realistic_costs=realistic_costs)),
+        ("Config 2: Scalping Strategy", create_config_2_scalping(realistic_costs=realistic_costs))
     ]
     
     all_results = {}
@@ -476,6 +581,8 @@ def run_single_currency_mode(currency='AUDUSD', n_iterations=50, sample_size=800
             agg_stats = results_df.attrs['aggregate_trade_stats']
             print(f"  Avg Consec Wins:  {agg_stats['avg_avg_consecutive_wins']:.1f}")
             print(f"  Avg Consec Loss:  {agg_stats['avg_avg_consecutive_losses']:.1f}")
+            print(f"  Avg Win Pips:     {agg_stats['avg_win_pips']:.1f}")
+            print(f"  Avg Loss Pips:    {agg_stats['avg_loss_pips']:.1f}")
         
         print("\n━━━ Consistency ━━━")
         print(f"  Sharpe > 1.0:     {(results_df['sharpe_ratio'] > 1.0).sum()}/{n_iterations} ({(results_df['sharpe_ratio'] > 1.0).sum()/n_iterations*100:.0f}%)")
@@ -498,7 +605,7 @@ def run_single_currency_mode(currency='AUDUSD', n_iterations=50, sample_size=800
 
 
 def run_multi_currency_mode(currencies=['GBPUSD', 'EURUSD', 'USDJPY', 'NZDUSD', 'USDCAD'],
-                          n_iterations=30, sample_size=8000):
+                          n_iterations=30, sample_size=8000, realistic_costs=False):
     """Run Monte Carlo testing on multiple currency pairs"""
     
     print("="*80)
@@ -506,6 +613,18 @@ def run_multi_currency_mode(currencies=['GBPUSD', 'EURUSD', 'USDJPY', 'NZDUSD', 
     print(f"Testing {len(currencies)} currency pairs")
     print(f"Iterations per pair: {n_iterations} | Sample Size: {sample_size:,} rows")
     print("="*80)
+    
+    # Print trading mode box
+    print("\n┌─────────────────────────────────────────────────────────────────────────────┐")
+    if realistic_costs:
+        print("│                         🎯 REALISTIC TRADING MODE 🎯                        │")
+        print("├─────────────────────────────────────────────────────────────────────────────┤")
+        print("│  Slippage: Entry 0-0.5 pips | SL 0-2 pips | TSL 0-1 pip | TP 0 pips       │")
+    else:
+        print("│                         ⚡ PERFECT EXECUTION MODE ⚡                        │")
+        print("├─────────────────────────────────────────────────────────────────────────────┤")
+        print("│  All orders execute at exact prices - No slippage                          │")
+    print("└─────────────────────────────────────────────────────────────────────────────┘\n")
     
     all_results = {}
     
@@ -516,8 +635,8 @@ def run_multi_currency_mode(currencies=['GBPUSD', 'EURUSD', 'USDJPY', 'NZDUSD', 
             
             # Test both configurations
             configs = [
-                ("Config 1: Ultra-Tight Risk", create_config_1_ultra_tight_risk()),
-                ("Config 2: Scalping", create_config_2_scalping())
+                ("Config 1: Ultra-Tight Risk", create_config_1_ultra_tight_risk(realistic_costs=realistic_costs)),
+                ("Config 2: Scalping", create_config_2_scalping(realistic_costs=realistic_costs))
             ]
             
             currency_results = {}
@@ -1178,9 +1297,27 @@ def run_crypto_mode(crypto='ETHUSD', test_periods=None, save_results=False):
     
     # Add indicators
     print("Calculating indicators...")
+    
+    # Neuro Trend Intelligent
+    print("  Calculating Neuro Trend Intelligent...")
+    start_time = time.time()
     df = TIC.add_neuro_trend_intelligent(df)
+    elapsed_time = time.time() - start_time
+    print(f"  ✓ Completed Neuro Trend Intelligent in {elapsed_time:.3f} seconds ({len(df):,} rows, {len(df)/elapsed_time:,.0f} rows/sec)")
+    
+    # Market Bias
+    print("  Calculating Market Bias...")
+    start_time = time.time()
     df = TIC.add_market_bias(df)
+    elapsed_time = time.time() - start_time
+    print(f"  ✓ Completed Market Bias in {elapsed_time:.3f} seconds ({len(df):,} rows, {len(df)/elapsed_time:,.0f} rows/sec)")
+    
+    # Intelligent Chop
+    print("  Calculating Intelligent Chop...")
+    start_time = time.time()
     df = TIC.add_intelligent_chop(df)
+    elapsed_time = time.time() - start_time
+    print(f"  ✓ Completed Intelligent Chop in {elapsed_time:.3f} seconds ({len(df):,} rows, {len(df)/elapsed_time:,.0f} rows/sec)")
     
     print(f"Data ready: {len(df):,} rows from {df.index[0]} to {df.index[-1]}")
     
@@ -1517,6 +1654,10 @@ ANALYSIS:
                        help='Save charts as PNG files in results folder (default: disabled)')
     parser.add_argument('--no-save-plots', dest='save_plots', action='store_false',
                        help='Disable saving charts to PNG files (this is the default)')
+    parser.add_argument('--realistic-costs', action='store_true', default=True,
+                       help='Enable realistic trading costs with slippage (Entry: 0.5 pip, SL: 2 pips, TSL: 1 pip) (default: enabled)')
+    parser.add_argument('--no-realistic-costs', dest='realistic_costs', action='store_false',
+                       help='Disable realistic trading costs and use perfect fills')
     parser.add_argument('--debug', action='store_true',
                        help='Enable detailed decision logging to check for look-ahead bias')
     parser.add_argument('--version', '-v', action='version', 
@@ -1543,14 +1684,16 @@ ANALYSIS:
             enable_plots=not args.no_plots,
             enable_calendar_analysis=not args.no_calendar,
             show_plots=args.show_plots,
-            save_plots=args.save_plots
+            save_plots=args.save_plots,
+            realistic_costs=args.realistic_costs
         )
     
     elif args.mode == 'multi':
         run_multi_currency_mode(
             currencies=args.currencies,
             n_iterations=args.iterations,
-            sample_size=args.sample_size
+            sample_size=args.sample_size,
+            realistic_costs=args.realistic_costs
         )
     
     elif args.mode == 'crypto':

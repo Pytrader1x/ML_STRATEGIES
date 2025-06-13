@@ -58,9 +58,12 @@ class RealTimeDataGenerator:
         self.historical_buffer = pd.DataFrame()
         print(f"Generator reset to index {start_index}")
     
-    def get_sample_period(self, start_date: str = None, rows: int = 8000) -> tuple:
+    def get_sample_period(self, start_date: str = None, rows: int = 8000, start_idx: int = None) -> tuple:
         """Get a specific sample period for testing"""
-        if start_date:
+        if start_idx is not None:
+            # Use specific start index
+            pass
+        elif start_date:
             # Find index for start date
             start_idx = self.full_data[self.full_data['DateTime'] >= start_date].index[0]
         else:
