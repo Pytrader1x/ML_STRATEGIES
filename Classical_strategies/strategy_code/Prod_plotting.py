@@ -45,8 +45,8 @@ class PlotConfig:
     
     # Trade marker colors
     TRADE_COLORS = {
-        'long_entry': '#1E88E5',  # Bright Blue
-        'short_entry': '#FFD600',  # Bright Yellow
+        'long_entry': '#43A047',  # Green
+        'short_entry': '#E53935',  # Red
         'take_profit': '#43A047',  # Green
         'tp1_pullback': '#4CAF50',  # Light Green
         'stop_loss': '#E53935',  # Red
@@ -769,9 +769,14 @@ class ProductionPlotter:
         return None
     
     def _plot_entry_marker(self, ax, x_pos, entry_idx, trade_dict):
-        """Plot trade entry marker"""
+        """Plot trade entry marker with position size"""
         direction = trade_dict['direction']
         entry_price = trade_dict['entry_price']
+        
+        # Get position size in millions
+        position_size = trade_dict.get('position_size', 1000000) / 1000000
+        if hasattr(trade_dict.get('position_size'), 'value'):
+            position_size = trade_dict['position_size'].value / 1000000
         
         if direction == 'long':
             ax.scatter(x_pos[entry_idx], entry_price, 
@@ -781,6 +786,16 @@ class ProductionPlotter:
             ax.scatter(x_pos[entry_idx], entry_price, 
                       marker='v', s=200, color=self.config.TRADE_COLORS['short_entry'], 
                       edgecolor='white', linewidth=2, zorder=5)
+        
+        # Add position size annotation
+        ax.text(x_pos[entry_idx] - 0.5, entry_price, 
+               f'{position_size:.1f}M', 
+               fontsize=7, color='white', 
+               va='center', ha='right', 
+               bbox=dict(boxstyle='round,pad=0.2', 
+                        facecolor=self.config.TRADE_COLORS['long_entry' if direction == 'long' else 'short_entry'], 
+                        edgecolor='none', 
+                        alpha=0.8))
     
     def _plot_exit_marker(self, ax, x_pos, exit_idx, trade_dict):
         """Plot trade exit marker"""
@@ -814,20 +829,32 @@ class ProductionPlotter:
         else:
             exit_pips = (entry_price - exit_price) * 10000
         
-        # Get final P&L if available
+        # Get final P&L and position size if available
         final_pnl = trade_dict.get('pnl', None)
+        
+        # Calculate remaining position size for final exit
+        position_size = trade_dict.get('position_size', 1000000) / 1000000
+        if hasattr(trade_dict.get('position_size'), 'value'):
+            position_size = trade_dict['position_size'].value / 1000000
+            
+        # Get partial exits to calculate remaining size
+        partial_exits = trade_dict.get('partial_exits', [])
+        remaining_size = position_size
+        for pe in partial_exits:
+            pe_size = pe.size if hasattr(pe, 'size') else pe.get('size', 0)
+            remaining_size -= pe_size / 1000000
         
         pip_color = '#43A047' if exit_pips > 0 else '#E53935'
         
-        # Format text with pips and P&L
+        # Format text with size, pips and P&L in compact format
         if final_pnl is not None:
-            text = f'{exit_pips:+.0f}p\n${final_pnl:+.0f}'
+            text = f'{remaining_size:.2f}M|{exit_pips:+.0f}p|${final_pnl:+.0f}'
         else:
-            text = f'{exit_pips:+.0f}p'
+            text = f'{remaining_size:.2f}M|{exit_pips:+.0f}p'
             
         ax.text(x_pos[exit_idx] + 0.5, exit_price, 
                text, 
-               fontsize=7, color=pip_color, 
+               fontsize=6, color=pip_color, 
                va='center', ha='left', 
                bbox=dict(boxstyle='round,pad=0.2', 
                         facecolor=self.config.COLORS['bg'], 
@@ -893,11 +920,15 @@ class ProductionPlotter:
                 else:
                     partial_pips = (entry_price - partial_price) * 10000
                 
-                # Format text with pips and P&L
+                # Get partial exit size
+                partial_size = partial_exit.size if hasattr(partial_exit, 'size') else partial_exit.get('size', 0)
+                partial_size_m = partial_size / 1000000
+                
+                # Format text with size, pips and P&L in compact format
                 if partial_pnl is not None:
-                    text = f'+{partial_pips:.0f}p\n${partial_pnl:+.0f}'
+                    text = f'{partial_size_m:.2f}M|+{partial_pips:.0f}p|${partial_pnl:+.0f}'
                 else:
-                    text = f'+{partial_pips:.0f}p'
+                    text = f'{partial_size_m:.2f}M|+{partial_pips:.0f}p'
                 
                 # Add annotation
                 ax.text(x_pos[partial_idx] + 0.5, partial_price, 
@@ -948,11 +979,11 @@ class ProductionPlotter:
         if trades:
             legend_elements.append(
                 Line2D([0], [0], marker='^', color='w', markerfacecolor=self.config.TRADE_COLORS['long_entry'], 
-                       markersize=12, label='▲ Long Entry', linestyle='None', markeredgecolor='white', markeredgewidth=1)
+                       markersize=12, label='▲ Long Entry (Green)', linestyle='None', markeredgecolor='white', markeredgewidth=1)
             )
             legend_elements.append(
                 Line2D([0], [0], marker='v', color='w', markerfacecolor=self.config.TRADE_COLORS['short_entry'], 
-                       markersize=12, label='▼ Short Entry', linestyle='None', markeredgecolor='white', markeredgewidth=1)
+                       markersize=12, label='▼ Short Entry (Red)', linestyle='None', markeredgecolor='white', markeredgewidth=1)
             )
             
             # SECTION 2: Partial exits (TP levels)
