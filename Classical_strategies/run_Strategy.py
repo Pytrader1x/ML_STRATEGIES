@@ -5,7 +5,7 @@ Supports multiple modes: single currency, multi-currency, with various analysis 
 
 import pandas as pd
 import numpy as np
-from strategy_code.Prod_strategy_fixed import OptimizedProdStrategy, OptimizedStrategyConfig
+from strategy_code.Prod_strategy import OptimizedProdStrategy, OptimizedStrategyConfig
 from strategy_code.Prod_plotting import plot_production_results
 from technical_indicators_custom import TIC
 import warnings
@@ -52,6 +52,7 @@ def create_config_1_ultra_tight_risk(debug_mode=False, realistic_costs=False, us
         partial_profit_size_percent=0.5,
         intelligent_sizing=False,
         sl_volatility_adjustment=True,
+        relaxed_position_multiplier=0.5,
         realistic_costs=realistic_costs,
         verbose=False,
         debug_decisions=debug_mode,
@@ -89,6 +90,7 @@ def create_config_2_scalping(realistic_costs=False, use_daily_sharpe=True):
         partial_profit_size_percent=0.7,
         intelligent_sizing=False,
         sl_volatility_adjustment=True,
+        relaxed_position_multiplier=0.5,
         realistic_costs=realistic_costs,
         verbose=False,
         debug_decisions=False,
