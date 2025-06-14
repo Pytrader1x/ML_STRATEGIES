@@ -588,19 +588,31 @@ class OptimizedSignalGenerator:
             if trade.tp_hits >= 2 and row['Low'] <= trade.take_profits[0]:
                 return True, ExitReason.TP1_PULLBACK, 1.0
             
-            # Check normal TPs
+            # Check normal TPs - only check the next unprocessed TP level
             for i, tp in enumerate(trade.take_profits):
-                if i >= trade.tp_hits and row['High'] >= tp:
-                    return True, ExitReason(f'take_profit_{i+1}'), 0.33
+                if i == trade.tp_hits and row['High'] >= tp:  # Only check exact next level
+                    # Return appropriate exit percentage for this TP level
+                    if i == 0:  # TP1
+                        return True, ExitReason(f'take_profit_{i+1}'), self.config.tp1_exit_percent
+                    elif i == 1:  # TP2  
+                        return True, ExitReason(f'take_profit_{i+1}'), self.config.tp2_exit_percent
+                    else:  # TP3
+                        return True, ExitReason(f'take_profit_{i+1}'), self.config.tp3_exit_percent
         else:
             # Check for TP1 pullback
             if trade.tp_hits >= 2 and row['High'] >= trade.take_profits[0]:
                 return True, ExitReason.TP1_PULLBACK, 1.0
             
-            # Check normal TPs
+            # Check normal TPs - only check the next unprocessed TP level
             for i, tp in enumerate(trade.take_profits):
-                if i >= trade.tp_hits and row['Low'] <= tp:
-                    return True, ExitReason(f'take_profit_{i+1}'), 0.33
+                if i == trade.tp_hits and row['Low'] <= tp:  # Only check exact next level
+                    # Return appropriate exit percentage for this TP level
+                    if i == 0:  # TP1
+                        return True, ExitReason(f'take_profit_{i+1}'), self.config.tp1_exit_percent
+                    elif i == 1:  # TP2
+                        return True, ExitReason(f'take_profit_{i+1}'), self.config.tp2_exit_percent
+                    else:  # TP3
+                        return True, ExitReason(f'take_profit_{i+1}'), self.config.tp3_exit_percent
         
         # Check stop loss
         current_stop = trade.trailing_stop if trade.trailing_stop is not None else trade.stop_loss
@@ -949,7 +961,14 @@ class OptimizedProdStrategy:
                 trade.pnl = trade.partial_pnl
                 return trade
             
-            return None  # Continue with partial position
+            # CRITICAL: After TP partial exit, we need to check if there are more TPs to hit
+            # If all 3 TPs have been hit, close the trade completely
+            if trade.tp_hits >= 3:
+                trade.remaining_size = 0 
+                trade.pnl = trade.partial_pnl
+                return trade
+            
+            return None  # Continue with partial position for next TP level
         
         elif exit_reason == ExitReason.TP1_PULLBACK:
             exit_price = trade.take_profits[0]
@@ -1148,8 +1167,13 @@ class OptimizedProdStrategy:
                         )[0]
                         print(f"     Exit price: {exit_price:.5f} | Exit P&L: ${final_pnl:,.0f}")
                     
-                    # Execute exit (partial or full)
-                    if exit_percent < 1.0:
+                    # Execute TP exit using the dedicated TP exit logic
+                    if 'take_profit' in exit_reason.value:
+                        completed_trade = self._execute_full_exit(
+                            self.current_trade, current_time, exit_price, exit_reason
+                        )
+                    elif exit_percent < 1.0:
+                        # Other partial exits (signal flip, etc.)
                         completed_trade = self._execute_partial_exit(
                             self.current_trade, current_time, exit_price, 
                             exit_percent, exit_reason
@@ -1270,6 +1294,131 @@ class OptimizedProdStrategy:
         else:
             # For signal flips and other market exits, use current price with entry slippage
             return self._apply_slippage(base_price, 'entry', trade.direction)
+    
+    def export_trades_to_csv(self, filepath: str = None):
+        """Export all trades with detailed information to CSV"""
+        if not self.trades:
+            logger.warning("No trades to export")
+            return
+        
+        # Build comprehensive trade data
+        trade_records = []
+        
+        for i, trade in enumerate(self.trades, 1):
+            # Base trade information
+            base_record = {
+                'trade_id': i,
+                'entry_time': trade.entry_time,
+                'entry_price': trade.entry_price,
+                'direction': trade.direction.value if hasattr(trade.direction, 'value') else trade.direction,
+                'initial_size': trade.initial_position_size,
+                'initial_size_millions': trade.initial_position_size / 1e6,
+                'confidence': trade.confidence,
+                'is_relaxed': trade.is_relaxed,
+                'entry_logic': 'Relaxed (NTI only)' if trade.is_relaxed else 'Standard (NTI+MB+IC)',
+                'sl_price': trade.stop_loss,
+                'sl_distance_pips': abs(trade.entry_price - trade.stop_loss) / FOREX_PIP_SIZE,
+                'tp1_price': trade.take_profits[0] if len(trade.take_profits) > 0 else None,
+                'tp2_price': trade.take_profits[1] if len(trade.take_profits) > 1 else None,
+                'tp3_price': trade.take_profits[2] if len(trade.take_profits) > 2 else None,
+                'tp1_distance_pips': (trade.take_profits[0] - trade.entry_price) / FOREX_PIP_SIZE * (1 if trade.direction.value == 'long' else -1) if len(trade.take_profits) > 0 else None,
+                'tp2_distance_pips': (trade.take_profits[1] - trade.entry_price) / FOREX_PIP_SIZE * (1 if trade.direction.value == 'long' else -1) if len(trade.take_profits) > 1 else None,
+                'tp3_distance_pips': (trade.take_profits[2] - trade.entry_price) / FOREX_PIP_SIZE * (1 if trade.direction.value == 'long' else -1) if len(trade.take_profits) > 2 else None,
+            }
+            
+            # Add exit history details
+            total_partial_pnl = 0
+            partial_exits_summary = []
+            
+            if hasattr(trade, 'exit_history') and trade.exit_history:
+                for j, exit_event in enumerate(trade.exit_history, 1):
+                    exit_type = exit_event.get('type', '')
+                    exit_size = exit_event.get('size', 0)
+                    exit_pnl = exit_event.get('pnl', 0)
+                    exit_price = exit_event.get('price', 0)
+                    
+                    # Calculate pips for this exit
+                    if trade.direction.value == 'long':
+                        exit_pips = (exit_price - trade.entry_price) / FOREX_PIP_SIZE
+                    else:
+                        exit_pips = (trade.entry_price - exit_price) / FOREX_PIP_SIZE
+                    
+                    partial_exits_summary.append({
+                        'exit_num': j,
+                        'exit_type': exit_type,
+                        'exit_size_millions': exit_size / 1e6,
+                        'exit_price': exit_price,
+                        'exit_pips': exit_pips,
+                        'exit_pnl': exit_pnl
+                    })
+                    
+                    if 'TP' in exit_type or exit_type == 'PARTIAL':
+                        total_partial_pnl += exit_pnl
+            
+            # Final exit information
+            base_record.update({
+                'exit_time': trade.exit_time,
+                'final_exit_price': trade.exit_price,
+                'exit_reason': trade.exit_reason.value if hasattr(trade.exit_reason, 'value') else trade.exit_reason,
+                'trade_duration_hours': (trade.exit_time - trade.entry_time).total_seconds() / 3600 if trade.exit_time else None,
+                'tp_hits': trade.tp_hits,
+                'total_exited': trade.total_exited,
+                'total_exited_millions': trade.total_exited / 1e6,
+                'position_integrity_ok': abs(trade.total_exited - trade.initial_position_size) <= 1,
+            })
+            
+            # P&L breakdown
+            base_record.update({
+                'partial_pnl_total': total_partial_pnl,
+                'final_pnl': trade.pnl,
+                'pnl_per_million': trade.pnl / (trade.initial_position_size / 1e6) if trade.initial_position_size > 0 else 0,
+            })
+            
+            # Add partial exits details
+            for k in range(1, 4):  # Support up to 3 partial exits
+                if k <= len(partial_exits_summary):
+                    pe = partial_exits_summary[k-1]
+                    base_record.update({
+                        f'partial_exit_{k}_type': pe['exit_type'],
+                        f'partial_exit_{k}_size_m': pe['exit_size_millions'],
+                        f'partial_exit_{k}_price': pe['exit_price'],
+                        f'partial_exit_{k}_pips': pe['exit_pips'],
+                        f'partial_exit_{k}_pnl': pe['exit_pnl']
+                    })
+                else:
+                    base_record.update({
+                        f'partial_exit_{k}_type': None,
+                        f'partial_exit_{k}_size_m': None,
+                        f'partial_exit_{k}_price': None,
+                        f'partial_exit_{k}_pips': None,
+                        f'partial_exit_{k}_pnl': None
+                    })
+            
+            trade_records.append(base_record)
+        
+        # Convert to DataFrame
+        import pandas as pd
+        trades_df = pd.DataFrame(trade_records)
+        
+        # Save to CSV
+        if filepath is None:
+            from datetime import datetime
+            timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+            filepath = f'results/trades_export_{timestamp}.csv'
+        
+        trades_df.to_csv(filepath, index=False, float_format='%.6f')
+        logger.info(f"Exported {len(trades_df)} trades to {filepath}")
+        
+        # Print summary
+        print(f"\n📊 Trade Export Summary:")
+        print(f"  Total Trades: {len(trades_df)}")
+        print(f"  Total P&L: ${trades_df['final_pnl'].sum():,.2f}")
+        print(f"  Avg P&L per Trade: ${trades_df['final_pnl'].mean():,.2f}")
+        print(f"  Win Rate: {(trades_df['final_pnl'] > 0).sum() / len(trades_df) * 100:.1f}%")
+        print(f"  Position Integrity: {trades_df['position_integrity_ok'].sum()}/{len(trades_df)} OK")
+        print(f"  Saved to: {filepath}")
+        
+        return filepath
     
     def _calculate_performance_metrics(self) -> Dict:
         """Calculate performance metrics (same as original)"""
@@ -1414,7 +1563,8 @@ class OptimizedProdStrategy:
             'final_capital': self.current_capital,
             'trades': self.trades,
             'equity_curve': self.equity_curve,
-            'trade_log': self.trade_log_detailed if self.enable_trade_logging else []
+            'trade_log': self.trade_log_detailed if self.enable_trade_logging else [],
+            'strategy': self  # Include strategy instance for trade export
         }
     
     def _empty_metrics(self) -> Dict:

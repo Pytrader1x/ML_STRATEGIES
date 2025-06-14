@@ -275,11 +275,106 @@ def calculate_trade_statistics(results):
     return stats
 
 
+def _export_trades_detailed(trades, currency, config_name):
+    """Detailed trade export with all partial exits and P&L breakdown"""
+    import pandas as pd
+    from datetime import datetime
+    
+    trade_records = []
+    for i, trade in enumerate(trades, 1):
+        # Extract basic trade info
+        direction = trade.direction.value if hasattr(trade.direction, 'value') else trade.direction
+        exit_reason = trade.exit_reason.value if hasattr(trade.exit_reason, 'value') else trade.exit_reason
+        
+        # Calculate pip distances
+        sl_distance_pips = abs(trade.entry_price - trade.stop_loss) / 0.0001
+        
+        record = {
+            'trade_id': i,
+            'entry_time': trade.entry_time,
+            'entry_price': trade.entry_price,
+            'direction': direction,
+            'initial_size_millions': trade.initial_position_size / 1e6 if hasattr(trade, 'initial_position_size') else trade.position_size / 1e6,
+            'confidence': trade.confidence,
+            'is_relaxed': trade.is_relaxed,
+            'entry_logic': 'Relaxed (NTI only)' if trade.is_relaxed else 'Standard (NTI+MB+IC)',
+            'sl_price': trade.stop_loss,
+            'sl_distance_pips': sl_distance_pips,
+            'tp1_price': trade.take_profits[0] if len(trade.take_profits) > 0 else None,
+            'tp2_price': trade.take_profits[1] if len(trade.take_profits) > 1 else None,
+            'tp3_price': trade.take_profits[2] if len(trade.take_profits) > 2 else None,
+            'exit_time': trade.exit_time,
+            'exit_price': trade.exit_price,
+            'exit_reason': exit_reason,
+            'tp_hits': trade.tp_hits,
+            'trade_duration_hours': (trade.exit_time - trade.entry_time).total_seconds() / 3600 if trade.exit_time else None,
+            'final_pnl': trade.pnl,
+        }
+        
+        # Add partial exit details if available
+        if hasattr(trade, 'partial_exits') and trade.partial_exits:
+            partial_pnl_sum = 0
+            for j, pe in enumerate(trade.partial_exits[:3], 1):
+                pe_type = pe.exit_type if hasattr(pe, 'exit_type') else f'TP{pe.tp_level}' if hasattr(pe, 'tp_level') else 'PARTIAL'
+                pe_size = pe.size / 1e6 if hasattr(pe, 'size') else 0
+                pe_pnl = pe.pnl if hasattr(pe, 'pnl') else 0
+                partial_pnl_sum += pe_pnl
+                
+                record[f'partial_exit_{j}_type'] = pe_type
+                record[f'partial_exit_{j}_size_m'] = pe_size
+                record[f'partial_exit_{j}_pnl'] = pe_pnl
+            
+            record['partial_pnl_total'] = partial_pnl_sum
+        
+        # Calculate final P&L components
+        if direction == 'long':
+            final_pips = (trade.exit_price - trade.entry_price) / 0.0001
+        else:
+            final_pips = (trade.entry_price - trade.exit_price) / 0.0001
+        
+        record['final_exit_pips'] = final_pips
+        record['pnl_per_million'] = trade.pnl / (record['initial_size_millions']) if record['initial_size_millions'] > 0 else 0
+        
+        trade_records.append(record)
+    
+    # Save to CSV
+    df = pd.DataFrame(trade_records)
+    timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+    filepath = f'results/{currency}_{config_name.replace(":", "").replace(" ", "_").lower()}_trades_detail_{timestamp}.csv'
+    df.to_csv(filepath, index=False, float_format='%.6f')
+    
+    # Print summary
+    print(f"\n📊 Trade Export Summary for {config_name}:")
+    print(f"  Total Trades: {len(df)}")
+    print(f"  Total P&L: ${df['final_pnl'].sum():,.2f}")
+    print(f"  Avg P&L per Trade: ${df['final_pnl'].mean():,.2f}")
+    print(f"  Win Rate: {(df['final_pnl'] > 0).sum() / len(df) * 100:.1f}%")
+    print(f"  Avg Win: ${df[df['final_pnl'] > 0]['final_pnl'].mean():,.2f}" if len(df[df['final_pnl'] > 0]) > 0 else "  Avg Win: N/A")
+    print(f"  Avg Loss: ${df[df['final_pnl'] < 0]['final_pnl'].mean():,.2f}" if len(df[df['final_pnl'] < 0]) > 0 else "  Avg Loss: N/A")
+    print(f"  Saved to: {filepath}")
+    
+    return filepath
+
+def verify_position_integrity(trades):
+    """Verify position integrity - no over-exiting"""
+    issues = []
+    for i, trade in enumerate(trades):
+        if hasattr(trade, 'initial_position_size') and hasattr(trade, 'total_exited'):
+            if abs(trade.total_exited - trade.initial_position_size) > 1:  # Allow 1 unit rounding error
+                issues.append({
+                    'trade_id': i + 1,
+                    'initial_size': trade.initial_position_size,
+                    'total_exited': trade.total_exited,
+                    'difference': trade.total_exited - trade.initial_position_size
+                })
+    return len(issues) == 0, issues
+
 def run_single_monte_carlo(df, strategy, n_iterations, sample_size, return_last_sample=False):
     """Run Monte Carlo simulation for a single strategy configuration"""
     iteration_results = []
     last_sample_df = None
     last_results = None
+    integrity_checks = []
     
     # Track aggregate statistics
     all_trade_stats = {
@@ -305,6 +400,15 @@ def run_single_monte_carlo(df, strategy, n_iterations, sample_size, return_last_
         
         # Run backtest
         results = strategy.run_backtest(sample_df)
+        
+        # Verify position integrity
+        integrity_ok, integrity_issues = verify_position_integrity(results.get('trades', []))
+        integrity_checks.append(integrity_ok)
+        
+        if not integrity_ok:
+            print(f"  ⚠️  WARNING: Position integrity issues in iteration {i+1}:")
+            for issue in integrity_issues[:3]:  # Show first 3 issues
+                print(f"     Trade {issue['trade_id']}: Entered {issue['initial_size']/1e6:.2f}M, Exited {issue['total_exited']/1e6:.2f}M")
         
         # Calculate trade statistics
         trade_stats = calculate_trade_statistics(results)
@@ -365,6 +469,8 @@ def run_single_monte_carlo(df, strategy, n_iterations, sample_size, return_last_
             last_sample_df = sample_df.copy()
             last_results = results.copy()
             last_results['trade_stats'] = trade_stats
+            # Keep reference to strategy instance for trade export
+            last_results['strategy_instance'] = strategy
         
         # Store results
         iteration_data = {
@@ -383,21 +489,24 @@ def run_single_monte_carlo(df, strategy, n_iterations, sample_size, return_last_
             'num_wins': trade_stats['num_wins'],
             'num_losses': trade_stats['num_losses'],
             'max_consec_wins': trade_stats['max_consecutive_wins'],
-            'max_consec_losses': trade_stats['max_consecutive_losses']
+            'max_consec_losses': trade_stats['max_consecutive_losses'],
+            'integrity_ok': integrity_ok
         }
         
         iteration_results.append(iteration_data)
         
         # Print progress with latest results
         if (i + 1) % 10 == 0 or i == 0 or i == n_iterations - 1:
+            integrity_status = '✓' if integrity_ok else '✗'
             print(f"  [{i + 1:3d}/{n_iterations}] Sharpe: {results['sharpe_ratio']:>6.3f} | Return: {results['total_return']:>6.1f}% | " +
                   f"WR: {results['win_rate']:>5.1f}% | Trades: {results['total_trades']:>4} ({trade_stats['num_wins']}W/{trade_stats['num_losses']}L) | " +
-                  f"Pips: +{trade_stats.get('avg_win_pips', 0):>4.1f}/-{trade_stats.get('avg_loss_pips', 0):>4.1f}")
+                  f"Pips: +{trade_stats.get('avg_win_pips', 0):>4.1f}/-{trade_stats.get('avg_loss_pips', 0):>4.1f} | Integrity: {integrity_status}")
     
     # Create results dataframe
     results_df = pd.DataFrame(iteration_results)
     
-    # Add aggregate trade statistics
+    # Add aggregate trade statistics including integrity
+    integrity_pass_rate = sum(integrity_checks) / len(integrity_checks) * 100 if integrity_checks else 0
     results_df.attrs['aggregate_trade_stats'] = {
         'avg_max_consecutive_wins': np.mean(all_trade_stats['max_consecutive_wins']),
         'avg_avg_consecutive_wins': np.mean(all_trade_stats['avg_consecutive_wins']),
@@ -406,7 +515,8 @@ def run_single_monte_carlo(df, strategy, n_iterations, sample_size, return_last_
         'avg_num_wins': np.mean(all_trade_stats['num_wins']),
         'avg_num_losses': np.mean(all_trade_stats['num_losses']),
         'avg_win_pips': np.mean(all_trade_stats['avg_win_pips']),
-        'avg_loss_pips': np.mean(all_trade_stats['avg_loss_pips'])
+        'avg_loss_pips': np.mean(all_trade_stats['avg_loss_pips']),
+        'position_integrity_rate': integrity_pass_rate
     }
     
     if return_last_sample:
@@ -506,7 +616,7 @@ def generate_calendar_year_analysis(results_df, config_name, currency=None, show
 def run_single_currency_mode(currency='AUDUSD', n_iterations=50, sample_size=8000, 
                            enable_plots=True, enable_calendar_analysis=True,
                            show_plots=False, save_plots=False, realistic_costs=False,
-                           use_daily_sharpe=True, date_range=None):
+                           use_daily_sharpe=True, date_range=None, export_trades=True):
     """Run Monte Carlo testing on a single currency pair with both configurations"""
     
     print("="*80)
@@ -576,6 +686,20 @@ def run_single_currency_mode(currency='AUDUSD', n_iterations=50, sample_size=800
             all_results[config_name]['results_df'] = results_df
             all_results[config_name]['last_sample_df'] = last_sample_df
             all_results[config_name]['last_results'] = last_results
+            
+            # Export trades from last iteration if requested
+            if export_trades and last_results:
+                # Try to get strategy instance from results
+                strategy_instance = last_results.get('strategy_instance')
+                if strategy_instance and hasattr(strategy_instance, 'export_trades_to_csv'):
+                    trade_filepath = f'results/{currency}_{config_name.replace(":", "").replace(" ", "_").lower()}_trades_detail.csv'
+                    strategy_instance.export_trades_to_csv(trade_filepath)
+                else:
+                    # Fallback: Try direct export from results
+                    trades = last_results.get('trades', [])
+                    if trades:
+                        print(f"\n📝 Creating detailed trade export for {config_name}...")
+                        _export_trades_detailed(trades, currency, config_name)
         else:
             results_df = run_single_monte_carlo(df, strategy, n_iterations, sample_size)
             all_results[config_name] = {'results_df': results_df}
@@ -605,6 +729,16 @@ def run_single_currency_mode(currency='AUDUSD', n_iterations=50, sample_size=800
         print("\n━━━ Consistency ━━━")
         print(f"  Sharpe > 1.0:     {(results_df['sharpe_ratio'] > 1.0).sum()}/{n_iterations} ({(results_df['sharpe_ratio'] > 1.0).sum()/n_iterations*100:.0f}%)")
         print(f"  Profitable:       {(results_df['total_pnl'] > 0).sum()}/{n_iterations} ({(results_df['total_pnl'] > 0).sum()/n_iterations*100:.0f}%)")
+        
+        # Position integrity validation
+        integrity_passed = results_df['integrity_ok'].sum() if 'integrity_ok' in results_df.columns else n_iterations
+        integrity_rate = integrity_passed / n_iterations * 100
+        print(f"\n━━━ Position Integrity Validation ━━━")
+        print(f"  Position Integrity: {integrity_passed}/{n_iterations} ({integrity_rate:.0f}%)")
+        if integrity_rate == 100:
+            print(f"  ✅ PERFECT: No over-exiting detected")
+        else:
+            print(f"  ⚠️  WARNING: Some trades had position sizing issues")
         
         # Calendar year analysis
         if enable_calendar_analysis and len(results_df) > 0:
@@ -1682,6 +1816,10 @@ ANALYSIS:
                        help='Disable daily resampling for Sharpe ratio calculation (use bar-level data instead)')
     parser.add_argument('--date-range', type=str, nargs=2, metavar=('START', 'END'),
                        help='Specify date range for testing (format: YYYY-MM-DD YYYY-MM-DD)')
+    parser.add_argument('--export-trades', action='store_true', default=True,
+                       help='Export detailed trade-by-trade CSV after backtest (default: enabled)')
+    parser.add_argument('--no-export-trades', dest='export_trades', action='store_false',
+                       help='Disable trade export to CSV')
     parser.add_argument('--version', '-v', action='version', 
                        version=f'Monte Carlo Strategy Tester v{__version__}')
     
@@ -1721,7 +1859,8 @@ ANALYSIS:
             save_plots=args.save_plots,
             realistic_costs=args.realistic_costs,
             use_daily_sharpe=not args.no_daily_sharpe,
-            date_range=date_range
+            date_range=date_range,
+            export_trades=args.export_trades
         )
     
     elif args.mode == 'multi':

@@ -808,16 +808,26 @@ class ProductionPlotter:
                   marker='x', s=200, color=exit_color, 
                   linewidth=3, zorder=5)
         
-        # Add pip annotation
+        # Add pip and P&L annotation
         if direction == 'long':
             exit_pips = (exit_price - entry_price) * 10000
         else:
             exit_pips = (entry_price - exit_price) * 10000
         
+        # Get final P&L if available
+        final_pnl = trade_dict.get('pnl', None)
+        
         pip_color = '#43A047' if exit_pips > 0 else '#E53935'
+        
+        # Format text with pips and P&L
+        if final_pnl is not None:
+            text = f'{exit_pips:+.0f}p\n${final_pnl:+.0f}'
+        else:
+            text = f'{exit_pips:+.0f}p'
+            
         ax.text(x_pos[exit_idx] + 0.5, exit_price, 
-               f'{exit_pips:+.0f}p', 
-               fontsize=8, color=pip_color, 
+               text, 
+               fontsize=7, color=pip_color, 
                va='center', ha='left', 
                bbox=dict(boxstyle='round,pad=0.2', 
                         facecolor=self.config.COLORS['bg'], 
@@ -864,12 +874,13 @@ class ProductionPlotter:
         for partial_exit in partial_exits:
             partial_time = partial_exit.time if hasattr(partial_exit, 'time') else partial_exit['time']
             partial_price = partial_exit.price if hasattr(partial_exit, 'price') else partial_exit['price']
-            tp_level = partial_exit.tp_level if hasattr(partial_exit, 'tp_level') else partial_exit['tp_level']
+            tp_level = partial_exit.tp_level if hasattr(partial_exit, 'tp_level') else partial_exit.get('tp_level', 0)
+            partial_pnl = partial_exit.pnl if hasattr(partial_exit, 'pnl') else partial_exit.get('pnl', None)
             
             partial_idx = self._find_time_index(df, partial_time)
             
             if partial_idx is not None:
-                exit_color = tp_exit_colors[min(tp_level - 1, 2)]
+                exit_color = tp_exit_colors[min(tp_level - 1, 2)] if tp_level > 0 else '#FFB74D'
                 
                 # Plot marker
                 ax.scatter(x_pos[partial_idx], partial_price, 
@@ -882,10 +893,16 @@ class ProductionPlotter:
                 else:
                     partial_pips = (entry_price - partial_price) * 10000
                 
-                # Add pip annotation
+                # Format text with pips and P&L
+                if partial_pnl is not None:
+                    text = f'+{partial_pips:.0f}p\n${partial_pnl:+.0f}'
+                else:
+                    text = f'+{partial_pips:.0f}p'
+                
+                # Add annotation
                 ax.text(x_pos[partial_idx] + 0.5, partial_price, 
-                       f'+{partial_pips:.0f}p', 
-                       fontsize=7, color=exit_color, 
+                       text, 
+                       fontsize=6, color=exit_color, 
                        va='center', ha='left', 
                        bbox=dict(boxstyle='round,pad=0.2', 
                                 facecolor=self.config.COLORS['bg'], 
@@ -902,40 +919,93 @@ class ProductionPlotter:
                    bbox=dict(boxstyle='round,pad=0.3', facecolor=self.config.COLORS['bg'], alpha=0.8))
     
     def _add_main_legend(self, ax, df, trades):
-        """Add legend to main chart"""
-        # Create legend entries
+        """Add comprehensive legend to main chart with proper grouping"""
         legend_elements = []
+        seen_labels = set()  # Track seen labels to avoid duplicates
         
-        # NeuroTrend indicators
+        # Analyze trades to determine what exit types are actually present
+        exit_types_present = set()
+        partial_exit_levels = set()
+        
+        if trades:
+            for trade in trades:
+                # Get exit reason
+                exit_reason = trade.exit_reason if hasattr(trade, 'exit_reason') else trade.get('exit_reason')
+                if hasattr(exit_reason, 'value'):
+                    exit_reason = exit_reason.value
+                
+                if exit_reason:
+                    exit_types_present.add(str(exit_reason))
+                
+                # Check for partial exits
+                partial_exits = trade.partial_exits if hasattr(trade, 'partial_exits') else trade.get('partial_exits', [])
+                for partial_exit in partial_exits:
+                    tp_level = partial_exit.tp_level if hasattr(partial_exit, 'tp_level') else partial_exit.get('tp_level', 0)
+                    if tp_level > 0:
+                        partial_exit_levels.add(tp_level)
+        
+        # SECTION 1: Entry markers
+        if trades:
+            legend_elements.append(
+                Line2D([0], [0], marker='^', color='w', markerfacecolor=self.config.TRADE_COLORS['long_entry'], 
+                       markersize=12, label='▲ Long Entry', linestyle='None', markeredgecolor='white', markeredgewidth=1)
+            )
+            legend_elements.append(
+                Line2D([0], [0], marker='v', color='w', markerfacecolor=self.config.TRADE_COLORS['short_entry'], 
+                       markersize=12, label='▼ Short Entry', linestyle='None', markeredgecolor='white', markeredgewidth=1)
+            )
+            
+            # SECTION 2: Partial exits (TP levels)
+            if partial_exit_levels:
+                tp_colors = ['#90EE90', '#3CB371', '#228B22']
+                for tp_level in sorted(partial_exit_levels):
+                    if tp_level <= 3:
+                        legend_elements.append(
+                            Line2D([0], [0], marker='o', color='w', markerfacecolor=tp_colors[tp_level-1], 
+                                   markersize=10, label=f'● TP{tp_level} Exit', linestyle='None', 
+                                   markeredgecolor='white', markeredgewidth=1)
+                        )
+            
+            # SECTION 3: Final exits
+            exit_markers = {
+                'take_profit_1': ('✗', self.config.TRADE_COLORS['take_profit'], 'TP1 Final'),
+                'take_profit_2': ('✗', self.config.TRADE_COLORS['take_profit'], 'TP2 Final'),
+                'take_profit_3': ('✗', self.config.TRADE_COLORS['take_profit'], 'TP3 Final'), 
+                'stop_loss': ('✗', self.config.TRADE_COLORS['stop_loss'], 'Stop Loss'),
+                'trailing_stop': ('✗', self.config.TRADE_COLORS['trailing_stop'], 'Trailing SL'),
+                'signal_flip': ('✗', self.config.TRADE_COLORS['signal_flip'], 'Signal Flip'),
+                'end_of_data': ('✗', self.config.TRADE_COLORS['end_of_data'], 'End of Data')
+            }
+            
+            for exit_type in exit_types_present:
+                if exit_type in exit_markers:
+                    symbol, color, label = exit_markers[exit_type]
+                    if label not in seen_labels:
+                        legend_elements.append(
+                            Line2D([0], [0], marker='x', color=color, 
+                                   markersize=12, label=f'{symbol} {label}', linestyle='None', markeredgewidth=2)
+                        )
+                        seen_labels.add(label)
+        
+        # SECTION 4: Market indicators (if space permits)
         if 'NTI_Direction' in df.columns or 'NT3_Direction' in df.columns:
             legend_elements.extend([
-                Line2D([0], [0], color=self.config.COLORS['bullish'], lw=2, label='Uptrend'),
-                Line2D([0], [0], color=self.config.COLORS['bearish'], lw=2, label='Downtrend')
-            ])
-        
-        # Market Bias
-        if 'MB_Bias' in df.columns:
-            legend_elements.extend([
-                mpatches.Patch(color=self.config.COLORS['bullish'], alpha=0.4, label='Bullish Bias'),
-                mpatches.Patch(color=self.config.COLORS['bearish'], alpha=0.4, label='Bearish Bias')
-            ])
-        
-        # Trade markers (only if trades exist)
-        if trades:
-            legend_elements.extend([
-                Line2D([0], [0], marker='^', color='w', markerfacecolor=self.config.TRADE_COLORS['long_entry'], 
-                       markersize=10, label='Long Entry', linestyle='None'),
-                Line2D([0], [0], marker='v', color='w', markerfacecolor=self.config.TRADE_COLORS['short_entry'], 
-                       markersize=10, label='Short Entry', linestyle='None'),
-                Line2D([0], [0], marker='x', color=self.config.TRADE_COLORS['take_profit'], 
-                       markersize=10, label='Take Profit', linestyle='None'),
-                Line2D([0], [0], marker='x', color=self.config.TRADE_COLORS['stop_loss'], 
-                       markersize=10, label='Stop Loss', linestyle='None')
+                Line2D([0], [0], color=self.config.COLORS['bullish'], lw=3, label='— Uptrend', alpha=0.8),
+                Line2D([0], [0], color=self.config.COLORS['bearish'], lw=3, label='— Downtrend', alpha=0.8)
             ])
         
         if legend_elements:
-            ax.legend(handles=legend_elements, loc='upper left', fontsize=9, 
-                     framealpha=0.9, ncol=2)
+            # Create legend with better layout
+            legend = ax.legend(handles=legend_elements, loc='upper left', fontsize=8, 
+                             framealpha=0.95, ncol=3, columnspacing=1.0,
+                             handletextpad=0.3, handlelength=1.5,
+                             bbox_to_anchor=(0.01, 0.99))
+            legend.get_frame().set_facecolor(self.config.COLORS['bg'])
+            legend.get_frame().set_edgecolor(self.config.COLORS['grid'])
+            
+            # Set text color
+            for text in legend.get_texts():
+                text.set_color(self.config.COLORS['text'])
     
     def _plot_chop_subplots(self, axes, df, simplified_regime_colors, trend_color, range_color):
         """Plot Intelligent Chop subplots (placeholder)"""
