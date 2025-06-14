@@ -203,7 +203,8 @@ class RiskManager:
         # Apply relaxed mode position reduction
         if is_relaxed:
             position_size_millions *= self.config.relaxed_position_multiplier
-            position_size_millions = max(1.0, round(position_size_millions))
+            # Allow fractional positions in relaxed mode, but ensure minimum 0.1M
+            position_size_millions = max(0.1, position_size_millions)
         
         # Convert to units
         position_size = position_size_millions * self.config.min_lot_size
@@ -1123,7 +1124,8 @@ class OptimizedProdStrategy:
             # Fix: Use remaining size to prevent over-exiting
             if trade.tp_hits < 2:
                 # For TP1 and TP2, exit 1/3 of original position
-                exit_size = min(trade.position_size / 3, trade.remaining_size)
+                # FIXED: Ensure we're exiting exactly 1/3 of original position
+                exit_size = min(trade.position_size / 3.0, trade.remaining_size)
             else:
                 # For TP3, exit all remaining
                 exit_size = trade.remaining_size
@@ -1136,6 +1138,21 @@ class OptimizedProdStrategy:
             trade.partial_pnl += partial_pnl
             trade.tp_hits = tp_index + 1
             self.current_capital += partial_pnl
+            
+            # Record partial exit for TP
+            trade.partial_exits.append(PartialExit(
+                time=exit_time,
+                price=exit_price,
+                size=exit_size,
+                tp_level=tp_index + 1,
+                pnl=partial_pnl
+            ))
+            
+            # Debug logging for partial exits
+            if self.config.debug_decisions:
+                size_in_millions = exit_size / self.config.min_lot_size
+                print(f"  📊 TP{tp_index+1} PARTIAL EXIT: {size_in_millions:.2f}M @ {exit_price:.5f}")
+                print(f"     Original size: {trade.position_size/self.config.min_lot_size:.2f}M, Remaining: {trade.remaining_size/self.config.min_lot_size:.2f}M")
             
             # Log TP exit
             if self.enable_trade_logging:
