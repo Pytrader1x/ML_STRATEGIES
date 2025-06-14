@@ -840,9 +840,22 @@ class ProductionPlotter:
         # Get partial exits to calculate remaining size
         partial_exits = trade_dict.get('partial_exits', [])
         remaining_size = position_size
+        partial_pnl_sum = 0
         for pe in partial_exits:
             pe_size = pe.size if hasattr(pe, 'size') else pe.get('size', 0)
             remaining_size -= pe_size / 1000000
+            # Sum partial P&Ls
+            pe_pnl = pe.pnl if hasattr(pe, 'pnl') else pe.get('pnl', 0)
+            partial_pnl_sum += pe_pnl
+            
+        # For TSL/final exits, calculate P&L for remaining position if not provided
+        if final_pnl is None and remaining_size > 0:
+            # Calculate P&L for remaining position
+            if direction == 'long':
+                remaining_pnl = (exit_price - entry_price) * remaining_size * 1000000 * 100
+            else:
+                remaining_pnl = (entry_price - exit_price) * remaining_size * 1000000 * 100
+            final_pnl = partial_pnl_sum + remaining_pnl
         
         pip_color = '#43A047' if exit_pips > 0 else '#E53935'
         
@@ -851,6 +864,14 @@ class ProductionPlotter:
             text = f'{remaining_size:.2f}M|{exit_pips:+.0f}p|${final_pnl:+.0f}'
         else:
             text = f'{remaining_size:.2f}M|{exit_pips:+.0f}p'
+            
+        # Special handling for TSL and SL to show exit type in annotation
+        if exit_reason == 'trailing_stop' and final_pnl is not None:
+            # For TSL, show the P&L more prominently
+            text = f'TSL: {remaining_size:.2f}M|{exit_pips:+.0f}p|${final_pnl:+.0f}'
+        elif exit_reason == 'stop_loss' and final_pnl is not None:
+            # For SL, also show exit type
+            text = f'SL: {remaining_size:.2f}M|{exit_pips:+.0f}p|${final_pnl:+.0f}'
             
         ax.text(x_pos[exit_idx] + 0.5, exit_price, 
                text, 
