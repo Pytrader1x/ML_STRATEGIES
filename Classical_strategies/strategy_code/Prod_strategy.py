@@ -988,14 +988,20 @@ class OptimizedProdStrategy:
                         )[0]
                         print(f"     Exit price: {exit_price:.5f} | Exit P&L: ${final_pnl:,.0f}")
                     
-                    # Execute exit (partial or full)
-                    if exit_percent < 1.0:
+                    # Execute exit - ALWAYS use _execute_full_exit for TP exits
+                    if 'take_profit' in str(exit_reason):
+                        # TP exits must go through _execute_full_exit for correct sizing
+                        completed_trade = self._execute_full_exit(
+                            self.current_trade, current_time, exit_price, exit_reason
+                        )
+                    elif exit_percent < 1.0:
+                        # Other partial exits
                         completed_trade = self._execute_partial_exit(
                             self.current_trade, current_time, exit_price, 
                             exit_percent, exit_reason
                         )
                     else:
-                        # Full exit
+                        # Full exit (SL, TSL, etc)
                         completed_trade = self._execute_full_exit(
                             self.current_trade, current_time, exit_price, exit_reason
                         )
@@ -1121,15 +1127,33 @@ class OptimizedProdStrategy:
         # Handle special exit types
         if 'take_profit' in exit_reason.value:
             tp_index = int(exit_reason.value.split('_')[-1]) - 1
-            # Use original partial exit logic for TP exits
-            # Fix: Use remaining size to prevent over-exiting
-            if trade.tp_hits < 2:
-                # For TP1 and TP2, exit 1/3 of original position
-                # FIXED: Ensure we're exiting exactly 1/3 of original position
-                exit_size = min(trade.position_size / 3.0, trade.remaining_size)
-            else:
-                # For TP3, exit all remaining
+            
+            # CLEAN TP EXIT LOGIC:
+            # - TP1 (tp_index=0): Exit 1/3 of original, but not more than remaining
+            # - TP2 (tp_index=1): Exit 1/3 of original, but not more than remaining  
+            # - TP3 (tp_index=2): Exit all remaining
+            
+            # Prevent multiple exits at same TP level
+            if tp_index < trade.tp_hits:
+                # This TP was already hit - should never happen with proper logic
+                if self.config.debug_decisions:
+                    print(f"  ⚠️  WARNING: Attempted to hit TP{tp_index+1} again (already at TP{trade.tp_hits})")
+                return None
+                
+            if tp_index < 2:  # TP1 or TP2
+                # Exit 1/3 of ORIGINAL position, but not more than remaining
+                desired_exit = trade.position_size / 3.0
+                exit_size = min(desired_exit, trade.remaining_size)
+            else:  # TP3
+                # Exit all remaining
                 exit_size = trade.remaining_size
+                
+            # Safety check
+            if exit_size <= 0:
+                if self.config.debug_decisions:
+                    print(f"  ⚠️  WARNING: No position left to exit at TP{tp_index+1}")
+                return None
+                
             trade.remaining_size -= exit_size
             
             partial_pnl, pips = self.pnl_calculator.calculate_pnl(
