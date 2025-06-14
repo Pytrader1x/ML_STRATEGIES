@@ -851,10 +851,13 @@ class ProductionPlotter:
         # For TSL/final exits, calculate P&L for remaining position if not provided
         if final_pnl is None and remaining_size > 0:
             # Calculate P&L for remaining position
+            # remaining_size is in millions, so multiply by 100 (pip value per million)
             if direction == 'long':
-                remaining_pnl = (exit_price - entry_price) * remaining_size * 1000000 * 100
+                pip_change = (exit_price - entry_price) * 10000  # Convert to pips
+                remaining_pnl = pip_change * remaining_size * 100  # size in M * $100/pip/M
             else:
-                remaining_pnl = (entry_price - exit_price) * remaining_size * 1000000 * 100
+                pip_change = (entry_price - exit_price) * 10000  # Convert to pips
+                remaining_pnl = pip_change * remaining_size * 100  # size in M * $100/pip/M
             final_pnl = partial_pnl_sum + remaining_pnl
         
         pip_color = '#43A047' if exit_pips > 0 else '#E53935'

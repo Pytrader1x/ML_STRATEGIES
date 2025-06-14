@@ -773,8 +773,9 @@ class OptimizedProdStrategy:
                              exit_price: float, exit_percent: float, 
                              exit_reason: Optional[ExitReason] = None) -> Optional[Trade]:
         """Execute a partial exit with custom percentage"""
-        # Calculate exit size
-        exit_size = trade.position_size * exit_percent
+        # Calculate exit size based on REMAINING position, not original
+        # This ensures we don't over-exit the position
+        exit_size = trade.remaining_size * exit_percent
         trade.remaining_size -= exit_size
         
         # Calculate P&L
