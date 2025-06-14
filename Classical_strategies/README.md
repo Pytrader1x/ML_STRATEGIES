@@ -92,23 +92,28 @@ pip install pandas numpy matplotlib seaborn
 
 ```
 Classical_strategies/
-├── monte_carlo_dual_strategy_test.py           # Main Monte Carlo testing with calendar year analysis
-├── multi_currency_monte_carlo.py               # Multi-currency testing across pairs
-├── crypto_strategy_final.py                    # Cryptocurrency strategy implementation
+├── run_Strategy.py                             # Main strategy runner with Feb-March 2025 analysis
 ├── strategy_code/                              # Core strategy implementation
-│   ├── Prod_strategy.py                       # Strategy classes and configurations
+│   ├── Prod_strategy.py                       # Optimized production strategy with bug fixes
 │   └── Prod_plotting.py                       # Visualization tools
-├── analysis/                                   # Analysis and testing scripts
-│   ├── extended_crypto_backtest.py           # Crypto strategy testing
-│   ├── extended_fx_backtest.py               # FX strategy testing
-│   └── ...                                   # Additional analysis tools
-├── validation/                                 # Validation scripts and reports
-│   ├── multi_currency_validation.py          # Cross-currency validation
-│   └── VALIDATION_REPORT.md                  # Comprehensive validation results
-├── results/                                    # Output files and reports
-│   ├── monte_carlo_results_config_*.csv      # Detailed iteration results
-│   └── MONTE_CARLO_CALENDAR_YEAR_SUMMARY.md  # Calendar year analysis
-└── charts/                                     # Generated visualizations
+├── analysis/                                   # All analysis scripts (cleaned up)
+│   ├── README.md                              # Analysis documentation
+│   ├── analyze_exit_patterns.py               # Exit pattern analysis
+│   ├── analyze_sl_outcomes.py                 # Stop loss outcome analysis
+│   ├── comprehensive_detailed_report.py       # Full detailed report
+│   ├── final_tsl_clarification.py            # TSL vs Pure SL clarification
+│   └── ...                                    # Additional analysis tools
+├── results/                                    # Backtest results and trade logs
+│   ├── AUDUSD_config_*_sl_analysis.csv       # Stop loss analysis data
+│   ├── AUDUSD_config_*_verified_trade_log.csv # Detailed trade logs
+│   └── ...                                    # Monte Carlo and other results
+├── charts/                                     # Generated visualizations
+│   ├── AUDUSD_config_*_calendar_year.png     # Performance charts
+│   └── AUDUSD_metrics_comparison.png         # Strategy comparison
+├── Validation/                                 # Real-time validation tools
+│   ├── real_time_strategy_simulator.py       # Live testing simulator
+│   └── run_validation_tests.py               # Validation test suite
+└── archive/                                    # Previous versions and experiments
 ```
 
 ## 📊 Data Requirements

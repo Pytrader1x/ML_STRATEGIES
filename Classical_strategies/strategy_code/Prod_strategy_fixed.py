@@ -1,16 +1,16 @@
 """
-Optimized Production Strategy Implementation
-Incorporates improvements based on exit analysis insights
+Fixed Production Strategy Implementation
+Fixes the over-exiting bug and adds proper position tracking
 
-Key Optimizations:
-1. Enhanced signal flip logic with profit threshold and time filter
-2. Dynamic stop loss placement based on market conditions
-3. Adaptive take profit levels based on market regime
-4. Partial exit capabilities on signal flips
+Key Fixes:
+1. Proper partial exit sizing based on remaining position
+2. Comprehensive position tracking with all exits logged
+3. Safety checks to prevent over-exiting
+4. Clear trade progression tracking
 
 Author: Trading System
 Date: 2025
-Version: 2.0
+Version: 2.1 (Fixed)
 """
 
 import pandas as pd
@@ -111,15 +111,16 @@ class PartialExit:
     size: float
     tp_level: int
     pnl: float
+    exit_type: str  # "TP1", "TP2", "TP3", "PARTIAL", "STOP_LOSS", etc.
 
 
 @dataclass
 class Trade:
-    """Comprehensive trade information"""
+    """Comprehensive trade information with enhanced tracking"""
     entry_time: pd.Timestamp
     entry_price: float
     direction: TradeDirection
-    position_size: float
+    position_size: float  # Initial position size
     stop_loss: float
     take_profits: List[float]
     is_relaxed: bool = False
@@ -130,20 +131,50 @@ class Trade:
     pnl: Optional[float] = None
     pnl_percent: Optional[float] = None
     trailing_stop: Optional[float] = None
-    tp_hits: int = 0
-    remaining_size: float = None
-    partial_pnl: float = 0.0
+    tp_hits: int = 0  # Number of TPs hit
+    remaining_size: float = None  # Current remaining position
+    partial_pnl: float = 0.0  # Cumulative P&L from partial exits
     tp_exit_times: List[pd.Timestamp] = field(default_factory=list)
     tp_exit_prices: List[float] = field(default_factory=list)
     partial_exits: List[PartialExit] = field(default_factory=list)
     
+    # New fields for better tracking
+    initial_position_size: float = None  # Store original size
+    total_exited: float = 0.0  # Track total amount exited
+    exit_history: List[Dict] = field(default_factory=list)  # Detailed exit history
+    
     def __post_init__(self):
-        """Initialize remaining size if not provided"""
+        """Initialize remaining size and initial position if not provided"""
         if self.remaining_size is None:
             self.remaining_size = self.position_size
+        if self.initial_position_size is None:
+            self.initial_position_size = self.position_size
         # Convert string direction to enum if needed
         if isinstance(self.direction, str):
             self.direction = TradeDirection(self.direction)
+    
+    def add_exit(self, exit_time: pd.Timestamp, exit_price: float, exit_size: float, 
+                 exit_type: str, pnl: float, reason: str):
+        """Add an exit to the trade history"""
+        self.exit_history.append({
+            'time': exit_time,
+            'price': exit_price,
+            'size': exit_size,
+            'type': exit_type,
+            'pnl': pnl,
+            'reason': reason,
+            'remaining_after': self.remaining_size - exit_size
+        })
+        self.total_exited += exit_size
+        self.remaining_size -= exit_size
+        
+        # Safety check
+        if self.remaining_size < 0:
+            logger.error(f"WARNING: Remaining size negative! Trade {id(self)}: "
+                        f"Initial={self.initial_position_size}, "
+                        f"Exited={self.total_exited}, "
+                        f"Remaining={self.remaining_size}")
+            self.remaining_size = 0
 
 
 # ============================================================================
@@ -259,6 +290,11 @@ class OptimizedStrategyConfig:
     # Take profit configuration
     tp_atr_multipliers: Tuple[float, float, float] = (0.8, 1.5, 2.5)
     max_tp_percent: float = 0.01
+    
+    # TP exit percentages (FIXED VALUES)
+    tp1_exit_percent: float = 0.3333  # Exit 33.33% at TP1
+    tp2_exit_percent: float = 0.5000  # Exit 50% of remaining at TP2 (33.33% of original)
+    tp3_exit_percent: float = 1.0000  # Exit 100% of remaining at TP3 (33.33% of original)
     
     # Dynamic TP adjustments
     tp_range_market_multiplier: float = 0.7  # Tighter TPs in ranging markets
@@ -590,7 +626,7 @@ class OptimizedSignalGenerator:
 # ============================================================================
 
 class OptimizedProdStrategy:
-    """Production strategy with optimizations based on performance analysis"""
+    """Production strategy with fixed exit sizing and enhanced tracking"""
     
     def __init__(self, config: Optional[OptimizedStrategyConfig] = None):
         """Initialize optimized strategy"""
@@ -651,22 +687,16 @@ class OptimizedProdStrategy:
             'mb_bias': indicators.get('mb_bias', 0),
             'ic_regime': indicators.get('ic_regime', 0),
             'ic_regime_name': indicators.get('ic_regime_name', ''),
-            'atr': indicators.get('atr', 0)
+            'atr': indicators.get('atr', 0),
+            'initial_size': trade.initial_position_size,
+            'total_exited': trade.total_exited,
+            'tp_hits': trade.tp_hits
         }
         
         self.trade_log_detailed.append(log_entry)
     
     def _apply_slippage(self, price: float, order_type: str, direction: TradeDirection) -> float:
-        """Apply realistic slippage based on order type and direction
-        
-        Args:
-            price: Base price
-            order_type: 'entry', 'stop_loss', 'trailing_stop', 'take_profit'
-            direction: Trade direction (LONG or SHORT)
-            
-        Returns:
-            Price with slippage applied
-        """
+        """Apply realistic slippage based on order type and direction"""
         if not self.config.realistic_costs:
             return price
         
@@ -771,17 +801,27 @@ class OptimizedProdStrategy:
     def _execute_partial_exit(self, trade: Trade, exit_time: pd.Timestamp,
                              exit_price: float, exit_percent: float, 
                              exit_reason: Optional[ExitReason] = None) -> Optional[Trade]:
-        """Execute a partial exit with custom percentage"""
+        """Execute a partial exit with custom percentage and safety checks"""
+        
+        # Safety check: ensure we have remaining position
+        if trade.remaining_size <= 0:
+            logger.warning(f"Cannot exit - no remaining position! Trade {id(trade)}")
+            return None
+        
         # Calculate exit size
-        exit_size = trade.position_size * exit_percent
-        trade.remaining_size -= exit_size
+        exit_size = trade.remaining_size * exit_percent
+        
+        # Safety check: ensure exit size doesn't exceed remaining
+        exit_size = min(exit_size, trade.remaining_size)
         
         # Calculate P&L
         partial_pnl, pips = self.pnl_calculator.calculate_pnl(
             trade.entry_price, exit_price, exit_size, trade.direction
         )
         
-        # Update trade state
+        # Update trade state using the new add_exit method
+        trade.add_exit(exit_time, exit_price, exit_size, 'PARTIAL', partial_pnl, 
+                      exit_reason.value if exit_reason else 'Partial Exit')
         trade.partial_pnl += partial_pnl
         
         # Log partial exit
@@ -812,14 +852,17 @@ class OptimizedProdStrategy:
             price=exit_price,
             size=exit_size,
             tp_level=0,  # Not a TP exit
-            pnl=partial_pnl
+            pnl=partial_pnl,
+            exit_type='PARTIAL'
         ))
         
         # Update capital
         self.current_capital += partial_pnl
         
         if self.config.verbose:
-            logger.info(f"Partial exit ({exit_percent*100:.0f}%) at {exit_price:.5f}, P&L: ${partial_pnl:.2f}")
+            logger.info(f"Partial exit ({exit_percent*100:.0f}%) at {exit_price:.5f}, "
+                       f"Size: {exit_size/1e6:.2f}M, P&L: ${partial_pnl:.2f}, "
+                       f"Remaining: {trade.remaining_size/1e6:.2f}M")
         
         # Check if trade is complete
         if trade.remaining_size <= 0:
@@ -831,6 +874,125 @@ class OptimizedProdStrategy:
             return trade
         
         return None  # Trade continues
+    
+    def _execute_full_exit(self, trade: Trade, exit_time: pd.Timestamp,
+                          exit_price: float, exit_reason: ExitReason) -> Trade:
+        """Execute a full trade exit with proper TP handling (FIXED)"""
+        trade.exit_time = exit_time
+        trade.exit_price = exit_price
+        trade.exit_reason = exit_reason
+        
+        # Handle special exit types
+        if 'take_profit' in exit_reason.value:
+            tp_index = int(exit_reason.value.split('_')[-1]) - 1
+            
+            # FIXED: Calculate exit size based on remaining position and TP level
+            if tp_index == 0:  # TP1
+                # Exit 33.33% of remaining (which is 33.33% of original on first hit)
+                exit_size = trade.remaining_size * self.config.tp1_exit_percent
+            elif tp_index == 1:  # TP2
+                # Exit 50% of remaining (which gives us 33.33% of original)
+                exit_size = trade.remaining_size * self.config.tp2_exit_percent
+            else:  # TP3
+                # Exit all remaining
+                exit_size = trade.remaining_size * self.config.tp3_exit_percent
+            
+            # Safety check
+            exit_size = min(exit_size, trade.remaining_size)
+            
+            # Calculate P&L
+            partial_pnl, pips = self.pnl_calculator.calculate_pnl(
+                trade.entry_price, exit_price, exit_size, trade.direction
+            )
+            
+            # Update trade state
+            trade.add_exit(exit_time, exit_price, exit_size, f'TP{tp_index+1}', 
+                          partial_pnl, f"Take Profit {tp_index+1} Hit")
+            trade.partial_pnl += partial_pnl
+            trade.tp_hits = tp_index + 1
+            self.current_capital += partial_pnl
+            
+            # Record TP exit
+            trade.partial_exits.append(PartialExit(
+                time=exit_time,
+                price=exit_price,
+                size=exit_size,
+                tp_level=tp_index + 1,
+                pnl=partial_pnl,
+                exit_type=f'TP{tp_index+1}'
+            ))
+            
+            # Log TP exit
+            if self.enable_trade_logging:
+                indicators = {'nti_direction': 0, 'mb_bias': 0, 'ic_regime': 0, 'ic_regime_name': '', 'atr': 0}
+                self._log_trade_action(
+                    f'TP{tp_index+1}_EXIT',
+                    trade,
+                    exit_price,
+                    exit_size,
+                    f"Take Profit {tp_index+1} Hit",
+                    indicators,
+                    pnl=partial_pnl,
+                    cumulative_pnl=self.current_capital - self.config.initial_capital,
+                    pips=pips,
+                    timestamp=exit_time
+                )
+            
+            if self.config.verbose:
+                logger.info(f"TP{tp_index+1} hit at {exit_price:.5f}, "
+                           f"Exit size: {exit_size/1e6:.2f}M, P&L: ${partial_pnl:.2f}, "
+                           f"Remaining: {trade.remaining_size/1e6:.2f}M")
+            
+            # Check if trade is complete
+            if trade.tp_hits >= 3 or trade.remaining_size <= 0:
+                trade.remaining_size = 0
+                trade.pnl = trade.partial_pnl
+                return trade
+            
+            return None  # Continue with partial position
+        
+        elif exit_reason == ExitReason.TP1_PULLBACK:
+            exit_price = trade.take_profits[0]
+        
+        # Calculate final P&L for any remaining position
+        if trade.remaining_size > 0:
+            remaining_pnl, pips = self.pnl_calculator.calculate_pnl(
+                trade.entry_price, exit_price, trade.remaining_size, trade.direction
+            )
+            trade.add_exit(exit_time, exit_price, trade.remaining_size, 
+                          exit_reason.value, remaining_pnl, f"Exit: {exit_reason.value}")
+            trade.pnl = trade.partial_pnl + remaining_pnl
+            self.current_capital += remaining_pnl
+            
+            # Log final exit
+            if self.enable_trade_logging:
+                indicators = {'nti_direction': 0, 'mb_bias': 0, 'ic_regime': 0, 'ic_regime_name': '', 'atr': 0}
+                self._log_trade_action(
+                    'FINAL_EXIT',
+                    trade,
+                    exit_price,
+                    trade.remaining_size,
+                    f"Exit: {exit_reason.value}",
+                    indicators,
+                    pnl=remaining_pnl,
+                    cumulative_pnl=self.current_capital - self.config.initial_capital,
+                    pips=pips,
+                    timestamp=exit_time
+                )
+        
+        trade.remaining_size = 0
+        
+        # Calculate percentage return
+        original_value = trade.entry_price * trade.position_size
+        trade.pnl_percent = (trade.pnl / original_value) * 100
+        
+        # Final safety check
+        if abs(trade.total_exited - trade.initial_position_size) > 1:  # Allow 1 unit rounding error
+            logger.error(f"Position size mismatch! Trade {id(trade)}: "
+                        f"Entered {trade.initial_position_size/1e6:.3f}M, "
+                        f"Exited {trade.total_exited/1e6:.3f}M")
+        
+        return trade
     
     def _create_new_trade(self, entry_time: pd.Timestamp, row: pd.Series,
                          direction: TradeDirection, is_relaxed: bool) -> Trade:
@@ -1109,92 +1271,6 @@ class OptimizedProdStrategy:
             # For signal flips and other market exits, use current price with entry slippage
             return self._apply_slippage(base_price, 'entry', trade.direction)
     
-    def _execute_full_exit(self, trade: Trade, exit_time: pd.Timestamp,
-                          exit_price: float, exit_reason: ExitReason) -> Trade:
-        """Execute a full trade exit (similar to original)"""
-        trade.exit_time = exit_time
-        trade.exit_price = exit_price
-        trade.exit_reason = exit_reason
-        
-        # Handle special exit types
-        if 'take_profit' in exit_reason.value:
-            tp_index = int(exit_reason.value.split('_')[-1]) - 1
-            # Use original partial exit logic for TP exits
-            # Fix: Use remaining size to prevent over-exiting
-            if trade.tp_hits < 2:
-                # For TP1 and TP2, exit 1/3 of original position
-                exit_size = min(trade.position_size / 3, trade.remaining_size)
-            else:
-                # For TP3, exit all remaining
-                exit_size = trade.remaining_size
-            trade.remaining_size -= exit_size
-            
-            partial_pnl, pips = self.pnl_calculator.calculate_pnl(
-                trade.entry_price, exit_price, exit_size, trade.direction
-            )
-            
-            trade.partial_pnl += partial_pnl
-            trade.tp_hits = tp_index + 1
-            self.current_capital += partial_pnl
-            
-            # Log TP exit
-            if self.enable_trade_logging:
-                indicators = {'nti_direction': 0, 'mb_bias': 0, 'ic_regime': 0, 'ic_regime_name': '', 'atr': 0}
-                self._log_trade_action(
-                    f'TP{tp_index+1}_EXIT',
-                    trade,
-                    exit_price,
-                    exit_size,
-                    f"Take Profit {tp_index+1} Hit",
-                    indicators,
-                    pnl=partial_pnl,
-                    cumulative_pnl=self.current_capital - self.config.initial_capital,
-                    pips=pips,
-                    timestamp=exit_time
-                )
-            
-            if trade.tp_hits >= 3:
-                trade.remaining_size = 0
-                trade.pnl = trade.partial_pnl
-                return trade
-            
-            return None  # Continue with partial position
-        
-        elif exit_reason == ExitReason.TP1_PULLBACK:
-            exit_price = trade.take_profits[0]
-        
-        # Calculate final P&L
-        if trade.remaining_size > 0:
-            remaining_pnl, pips = self.pnl_calculator.calculate_pnl(
-                trade.entry_price, exit_price, trade.remaining_size, trade.direction
-            )
-            trade.pnl = trade.partial_pnl + remaining_pnl
-            self.current_capital += remaining_pnl
-            
-            # Log final exit
-            if self.enable_trade_logging:
-                indicators = {'nti_direction': 0, 'mb_bias': 0, 'ic_regime': 0, 'ic_regime_name': '', 'atr': 0}
-                self._log_trade_action(
-                    'FINAL_EXIT',
-                    trade,
-                    exit_price,
-                    trade.remaining_size,
-                    f"Exit: {exit_reason.value}",
-                    indicators,
-                    pnl=remaining_pnl,
-                    cumulative_pnl=self.current_capital - self.config.initial_capital,
-                    pips=pips,
-                    timestamp=exit_time
-                )
-        
-        trade.remaining_size = 0
-        
-        # Calculate percentage return
-        original_value = trade.entry_price * trade.position_size
-        trade.pnl_percent = (trade.pnl / original_value) * 100
-        
-        return trade
-    
     def _calculate_performance_metrics(self) -> Dict:
         """Calculate performance metrics (same as original)"""
         if not self.trades:
@@ -1283,7 +1359,7 @@ class OptimizedProdStrategy:
             reason = trade.exit_reason.value if trade.exit_reason else 'unknown'
             exit_reasons[reason] = exit_reasons.get(reason, 0) + 1
             
-            # Count TP hits
+            # Count TP hits based on trade history
             if trade.tp_hits >= 1:
                 tp_hit_stats['tp1_hits'] += 1
             if trade.tp_hits >= 2:
@@ -1377,4 +1453,4 @@ def create_optimized_strategy(**kwargs) -> OptimizedProdStrategy:
 
 
 if __name__ == "__main__":
-    logger.info("Optimized Production Strategy Module Loaded")
+    logger.info("Fixed Production Strategy Module Loaded")

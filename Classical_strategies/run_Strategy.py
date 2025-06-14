@@ -5,7 +5,7 @@ Supports multiple modes: single currency, multi-currency, with various analysis 
 
 import pandas as pd
 import numpy as np
-from strategy_code.Prod_strategy import OptimizedProdStrategy, OptimizedStrategyConfig
+from strategy_code.Prod_strategy_fixed import OptimizedProdStrategy, OptimizedStrategyConfig
 from strategy_code.Prod_plotting import plot_production_results
 from technical_indicators_custom import TIC
 import warnings
@@ -23,7 +23,7 @@ warnings.filterwarnings('ignore')
 __version__ = "2.1.0"
 
 
-def create_config_1_ultra_tight_risk(debug_mode=False, realistic_costs=False):
+def create_config_1_ultra_tight_risk(debug_mode=False, realistic_costs=False, use_daily_sharpe=True):
     """
     Configuration 1: Ultra-Tight Risk Management
     Achieved Sharpe Ratio: 1.171 on AUDUSD
@@ -54,12 +54,13 @@ def create_config_1_ultra_tight_risk(debug_mode=False, realistic_costs=False):
         sl_volatility_adjustment=True,
         realistic_costs=realistic_costs,
         verbose=False,
-        debug_decisions=debug_mode
+        debug_decisions=debug_mode,
+        use_daily_sharpe=use_daily_sharpe
     )
     return OptimizedProdStrategy(config)
 
 
-def create_config_2_scalping(realistic_costs=False):
+def create_config_2_scalping(realistic_costs=False, use_daily_sharpe=True):
     """
     Configuration 2: Scalping Strategy
     Achieved Sharpe Ratio: 1.146 on AUDUSD
@@ -90,7 +91,8 @@ def create_config_2_scalping(realistic_costs=False):
         sl_volatility_adjustment=True,
         realistic_costs=realistic_costs,
         verbose=False,
-        debug_decisions=False
+        debug_decisions=False,
+        use_daily_sharpe=use_daily_sharpe
     )
     return OptimizedProdStrategy(config)
 
@@ -295,10 +297,11 @@ def run_single_monte_carlo(df, strategy, n_iterations, sample_size, return_last_
         # Get random starting point
         max_start = len(df) - sample_size
         if max_start < 0:
-            raise ValueError(f"Insufficient data: need {sample_size} rows, have {len(df)}")
-        
-        start_idx = np.random.randint(0, max_start)
-        sample_df = df.iloc[start_idx:start_idx + sample_size].copy()
+            # If date range is too small, use entire range
+            sample_df = df.copy()
+        else:
+            start_idx = np.random.randint(0, max_start + 1)
+            sample_df = df.iloc[start_idx:start_idx + sample_size].copy()
         
         # Run backtest
         results = strategy.run_backtest(sample_df)
@@ -502,12 +505,15 @@ def generate_calendar_year_analysis(results_df, config_name, currency=None, show
 
 def run_single_currency_mode(currency='AUDUSD', n_iterations=50, sample_size=8000, 
                            enable_plots=True, enable_calendar_analysis=True,
-                           show_plots=False, save_plots=False, realistic_costs=False):
+                           show_plots=False, save_plots=False, realistic_costs=False,
+                           use_daily_sharpe=True, date_range=None):
     """Run Monte Carlo testing on a single currency pair with both configurations"""
     
     print("="*80)
     print(f"SINGLE CURRENCY MODE - {currency}")
     print(f"Iterations: {n_iterations} | Sample Size: {sample_size:,} rows")
+    if date_range:
+        print(f"Date Range: {date_range[0]} to {date_range[1]}")
     print("="*80)
     
     # Print trading mode box
@@ -534,10 +540,22 @@ def run_single_currency_mode(currency='AUDUSD', n_iterations=50, sample_size=800
     # Load data
     df = load_and_prepare_data(currency)
     
+    # Apply date range filter if specified
+    if date_range:
+        start_date, end_date = date_range
+        df = df[(df.index >= start_date) & (df.index <= end_date)]
+        print(f"\nFiltered data to date range: {df.index[0]} to {df.index[-1]}")
+        print(f"Rows in date range: {len(df):,}")
+        
+        if len(df) < sample_size:
+            print(f"WARNING: Date range has fewer rows ({len(df)}) than sample size ({sample_size})")
+            print(f"Adjusting sample size to {len(df)}")
+            sample_size = len(df)
+    
     # Test both configurations
     configs = [
-        ("Config 1: Ultra-Tight Risk Management", create_config_1_ultra_tight_risk(realistic_costs=realistic_costs)),
-        ("Config 2: Scalping Strategy", create_config_2_scalping(realistic_costs=realistic_costs))
+        ("Config 1: Ultra-Tight Risk Management", create_config_1_ultra_tight_risk(realistic_costs=realistic_costs, use_daily_sharpe=use_daily_sharpe)),
+        ("Config 2: Scalping Strategy", create_config_2_scalping(realistic_costs=realistic_costs, use_daily_sharpe=use_daily_sharpe))
     ]
     
     all_results = {}
@@ -605,7 +623,7 @@ def run_single_currency_mode(currency='AUDUSD', n_iterations=50, sample_size=800
 
 
 def run_multi_currency_mode(currencies=['GBPUSD', 'EURUSD', 'USDJPY', 'NZDUSD', 'USDCAD'],
-                          n_iterations=30, sample_size=8000, realistic_costs=False):
+                          n_iterations=30, sample_size=8000, realistic_costs=False, use_daily_sharpe=True):
     """Run Monte Carlo testing on multiple currency pairs"""
     
     print("="*80)
@@ -635,8 +653,8 @@ def run_multi_currency_mode(currencies=['GBPUSD', 'EURUSD', 'USDJPY', 'NZDUSD', 
             
             # Test both configurations
             configs = [
-                ("Config 1: Ultra-Tight Risk", create_config_1_ultra_tight_risk(realistic_costs=realistic_costs)),
-                ("Config 2: Scalping", create_config_2_scalping(realistic_costs=realistic_costs))
+                ("Config 1: Ultra-Tight Risk", create_config_1_ultra_tight_risk(realistic_costs=realistic_costs, use_daily_sharpe=use_daily_sharpe)),
+                ("Config 2: Scalping", create_config_2_scalping(realistic_costs=realistic_costs, use_daily_sharpe=use_daily_sharpe))
             ]
             
             currency_results = {}
@@ -1493,7 +1511,7 @@ def run_debug_test(currency='AUDUSD', sample_size=1000):
     print(f"Date range: {sample_df.index[0]} to {sample_df.index[-1]}")
     
     # Create debug-enabled strategy
-    strategy = create_config_1_ultra_tight_risk(debug_mode=True)
+    strategy = create_config_1_ultra_tight_risk(debug_mode=True, use_daily_sharpe=False)
     
     # Run backtest with debug output
     results = strategy.run_backtest(sample_df)
@@ -1660,6 +1678,10 @@ ANALYSIS:
                        help='Disable realistic trading costs and use perfect fills')
     parser.add_argument('--debug', action='store_true',
                        help='Enable detailed decision logging to check for look-ahead bias')
+    parser.add_argument('--no-daily-sharpe', action='store_true',
+                       help='Disable daily resampling for Sharpe ratio calculation (use bar-level data instead)')
+    parser.add_argument('--date-range', type=str, nargs=2, metavar=('START', 'END'),
+                       help='Specify date range for testing (format: YYYY-MM-DD YYYY-MM-DD)')
     parser.add_argument('--version', '-v', action='version', 
                        version=f'Monte Carlo Strategy Tester v{__version__}')
     
@@ -1677,6 +1699,18 @@ ANALYSIS:
         return
     
     if args.mode == 'single':
+        # Parse date range if provided
+        date_range = None
+        if args.date_range:
+            try:
+                start_date = pd.to_datetime(args.date_range[0])
+                end_date = pd.to_datetime(args.date_range[1])
+                date_range = (start_date, end_date)
+            except Exception as e:
+                print(f"Error parsing date range: {e}")
+                print("Please use format: YYYY-MM-DD YYYY-MM-DD")
+                return
+        
         run_single_currency_mode(
             currency=args.currency,
             n_iterations=args.iterations,
@@ -1685,7 +1719,9 @@ ANALYSIS:
             enable_calendar_analysis=not args.no_calendar,
             show_plots=args.show_plots,
             save_plots=args.save_plots,
-            realistic_costs=args.realistic_costs
+            realistic_costs=args.realistic_costs,
+            use_daily_sharpe=not args.no_daily_sharpe,
+            date_range=date_range
         )
     
     elif args.mode == 'multi':
@@ -1693,7 +1729,8 @@ ANALYSIS:
             currencies=args.currencies,
             n_iterations=args.iterations,
             sample_size=args.sample_size,
-            realistic_costs=args.realistic_costs
+            realistic_costs=args.realistic_costs,
+            use_daily_sharpe=not args.no_daily_sharpe
         )
     
     elif args.mode == 'crypto':
