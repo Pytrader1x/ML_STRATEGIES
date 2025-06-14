@@ -548,32 +548,40 @@ class OptimizedSignalGenerator:
         """Enhanced exit condition checking"""
         current_price = row['Close']
         
+        # Debug: Print TP checking details
+        if self.config.debug_decisions and len(trade.take_profits) > 0:
+            print(f"  🎯 Checking TP exits: High={row['High']:.5f}, Low={row['Low']:.5f}")
+            print(f"     Current tp_hits: {trade.tp_hits}, exit_count: {trade.exit_count}")
+            for i, tp in enumerate(trade.take_profits):
+                status = "HIT" if i < trade.tp_hits else "PENDING"
+                print(f"     TP{i+1}: {tp:.5f} ({status})")
+        
         # Check take profit levels - max 3 exits per trade
         if trade.exit_count >= 3 or trade.remaining_size <= 0:
             return False, None, 0.0
             
         if trade.direction == TradeDirection.LONG:
-            # Check for TP1 pullback
+            # Check normal TPs FIRST (only check TPs that haven't been hit yet)
+            for i, tp in enumerate(trade.take_profits):
+                if i + 1 > trade.tp_hits and row['High'] >= tp:
+                    # Always exit remaining position when hitting any TP level
+                    exit_percent = 1.0 if trade.exit_count >= 2 else 0.33
+                    return True, ExitReason(f'take_profit_{i+1}'), exit_percent
+            
+            # Check for TP1 pullback AFTER checking all pending TPs
             if trade.tp_hits >= 2 and row['Low'] <= trade.take_profits[0]:
                 return True, ExitReason.TP1_PULLBACK, 1.0
-            
-            # Check normal TPs (only hit each TP once)
-            for i, tp in enumerate(trade.take_profits):
-                if i == trade.tp_hits and row['High'] >= tp:
-                    # Third exit takes all remaining position
-                    exit_percent = 1.0 if trade.exit_count == 2 else 0.33
-                    return True, ExitReason(f'take_profit_{i+1}'), exit_percent
         else:
-            # Check for TP1 pullback
+            # Check normal TPs FIRST (only check TPs that haven't been hit yet)
+            for i, tp in enumerate(trade.take_profits):
+                if i + 1 > trade.tp_hits and row['Low'] <= tp:
+                    # Always exit remaining position when hitting any TP level
+                    exit_percent = 1.0 if trade.exit_count >= 2 else 0.33
+                    return True, ExitReason(f'take_profit_{i+1}'), exit_percent
+            
+            # Check for TP1 pullback AFTER checking all pending TPs
             if trade.tp_hits >= 2 and row['High'] >= trade.take_profits[0]:
                 return True, ExitReason.TP1_PULLBACK, 1.0
-            
-            # Check normal TPs (only hit each TP once)
-            for i, tp in enumerate(trade.take_profits):
-                if i == trade.tp_hits and row['Low'] <= tp:
-                    # Third exit takes all remaining position
-                    exit_percent = 1.0 if trade.exit_count == 2 else 0.33
-                    return True, ExitReason(f'take_profit_{i+1}'), exit_percent
         
         # Check stop loss
         current_stop = trade.trailing_stop if trade.trailing_stop is not None else trade.stop_loss
@@ -1094,12 +1102,19 @@ class OptimizedProdStrategy:
                     if self.config.debug_decisions and new_trailing_stop != old_trailing_stop:
                         print(f"  📈 TRAILING STOP updated: {old_trailing_stop} → {new_trailing_stop:.5f}")
                 
-                # Check exit conditions
-                should_exit, exit_reason, exit_percent = self.signal_generator.check_exit_conditions(
-                    current_row, self.current_trade, current_time
-                )
+                # Check for ALL possible exits in this candle (multiple TPs can be hit)
+                exits_in_candle = []
+                trade_completed = False
                 
-                if should_exit:
+                # Continue checking for exits while we have remaining position
+                while self.current_trade is not None and self.current_trade.remaining_size > 0 and not trade_completed:
+                    should_exit, exit_reason, exit_percent = self.signal_generator.check_exit_conditions(
+                        current_row, self.current_trade, current_time
+                    )
+                    
+                    if not should_exit:
+                        break  # No more exits in this candle
+                    
                     if self.config.debug_decisions:
                         print(f"  🚪 EXIT SIGNAL: {exit_reason.value} ({exit_percent*100:.0f}% of position)")
                     
@@ -1114,13 +1129,17 @@ class OptimizedProdStrategy:
                         print(f"     Exit price: {exit_price:.5f} | Exit P&L: ${final_pnl:,.0f}")
                     
                     # Execute exit - ALWAYS use _execute_full_exit for TP exits
-                    if 'take_profit' in str(exit_reason):
+                    if 'take_profit' in exit_reason.value:
                         # TP exits must go through _execute_full_exit for correct sizing
+                        if self.config.debug_decisions:
+                            print(f"     🎯 Routing TP exit to _execute_full_exit: {exit_reason}")
                         completed_trade = self._execute_full_exit(
                             self.current_trade, current_time, exit_price, exit_reason
                         )
                     elif exit_percent < 1.0:
                         # Other partial exits
+                        if self.config.debug_decisions:
+                            print(f"     🔄 Routing partial exit to _execute_partial_exit: {exit_reason} ({exit_percent*100:.0f}%)")
                         completed_trade = self._execute_partial_exit(
                             self.current_trade, current_time, exit_price, 
                             exit_percent, exit_reason
@@ -1136,11 +1155,13 @@ class OptimizedProdStrategy:
                             print(f"  🏁 TRADE COMPLETED: Final P&L ${completed_trade.pnl:,.0f} | Total trades: {len(self.trades) + 1}")
                         self.trades.append(self.current_trade)
                         self.current_trade = None
+                        trade_completed = True
                     else:
                         # Partial exit - trade continues
                         if self.config.debug_decisions:
                             print(f"  ↪️  PARTIAL EXIT: Trade continues with {self.current_trade.remaining_size/self.config.min_lot_size:.2f}M remaining")
-                        # Trade continues - current_trade stays active
+                        # Continue loop to check for more exits in same candle
+                        exits_in_candle.append(exit_reason)
             
             # Check for new entry
             elif self.current_trade is None:
@@ -1302,10 +1323,11 @@ class OptimizedProdStrategy:
                     print(f"  ⚠️  No remaining position to exit")
                 return None
                 
-            # Prevent multiple exits at same TP level
-            if tp_index < trade.tp_hits:
+            # Prevent multiple exits at same TP level - check if this specific TP was already hit
+            tp_levels_hit = [pe.tp_level for pe in trade.partial_exits if hasattr(pe, 'tp_level')]
+            if (tp_index + 1) in tp_levels_hit:
                 if self.config.debug_decisions:
-                    print(f"  ⚠️  WARNING: Attempted to hit TP{tp_index+1} again (already at TP{trade.tp_hits})")
+                    print(f"  ⚠️  WARNING: TP{tp_index+1} already hit, skipping")
                 return None
                 
             # Determine exit size based on exit count
@@ -1332,7 +1354,11 @@ class OptimizedProdStrategy:
             )
             
             trade.partial_pnl += partial_pnl
-            trade.tp_hits = tp_index + 1
+            # Update tp_hits to track the highest TP level reached
+            old_tp_hits = trade.tp_hits
+            trade.tp_hits = max(trade.tp_hits, tp_index + 1)
+            if self.config.debug_decisions:
+                print(f"       TP hits updated: {old_tp_hits} → {trade.tp_hits}")
             self.current_capital += partial_pnl
             
             # Record partial exit for TP

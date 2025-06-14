@@ -96,10 +96,10 @@ class StrategyFactory:
             sl_atr_multiplier=1.0,
             tp_atr_multipliers=(0.2, 0.3, 0.5),
             max_tp_percent=0.003,
-            tsl_activation_pips=3,
+            tsl_activation_pips=15,  # Fixed: From 3 → 15 (allow TP1 to be reached first)
             tsl_min_profit_pips=1,
             tsl_initial_buffer_multiplier=1.0,
-            trailing_atr_multiplier=0.8,
+            trailing_atr_multiplier=1.2,  # Fixed: From 0.8 → 1.2 (wider trail distance)
             tp_range_market_multiplier=0.5,
             tp_trend_market_multiplier=0.7,
             tp_chop_market_multiplier=0.3,
@@ -132,10 +132,10 @@ class StrategyFactory:
             sl_atr_multiplier=0.5,
             tp_atr_multipliers=(0.1, 0.2, 0.3),
             max_tp_percent=0.002,
-            tsl_activation_pips=2,
+            tsl_activation_pips=8,  # Fixed: From 2 → 8 (allow TP1 to be reached first)
             tsl_min_profit_pips=0.5,
             tsl_initial_buffer_multiplier=0.5,
-            trailing_atr_multiplier=0.5,
+            trailing_atr_multiplier=0.8,  # Fixed: From 0.5 → 0.8 (wider trail distance)
             tp_range_market_multiplier=0.3,
             tp_trend_market_multiplier=0.5,
             tp_chop_market_multiplier=0.2,
@@ -290,6 +290,10 @@ class TradeAnalyzer:
                 stats = TradeAnalyzer._calculate_consecutive_stats(pnl_values)
                 stats['num_wins'] = sum(1 for pnl in pnl_values if pnl > 0)
                 stats['num_losses'] = sum(1 for pnl in pnl_values if pnl < 0)
+                
+                # Calculate exit statistics
+                exit_stats = TradeAnalyzer._calculate_exit_statistics(trades)
+                stats.update(exit_stats)
             else:
                 stats = TradeAnalyzer._empty_stats()
         else:
@@ -297,6 +301,71 @@ class TradeAnalyzer:
             stats = TradeAnalyzer._estimate_stats_from_aggregates(results)
         
         return stats
+    
+    @staticmethod
+    def _calculate_exit_statistics(trades: List[Any]) -> Dict[str, Any]:
+        """Calculate detailed exit statistics"""
+        exit_counts = defaultdict(int)
+        exit_combinations = defaultdict(int)
+        total_trades = len(trades)
+        
+        for trade in trades:
+            # Get exit reason
+            if hasattr(trade, 'exit_reason'):
+                exit_reason = trade.exit_reason.value if hasattr(trade.exit_reason, 'value') else str(trade.exit_reason)
+            else:
+                exit_reason = 'unknown'
+            
+            # Track single exit types
+            exit_counts[exit_reason] += 1
+            
+            # Track TP combinations (e.g., TP1+TP2, TP1+TP2+TP3, etc.)
+            if hasattr(trade, 'tp_hits') and trade.tp_hits > 0:
+                tp_combo = []
+                for i in range(1, trade.tp_hits + 1):
+                    tp_combo.append(f'TP{i}')
+                
+                # Check if TSL or SL was also hit
+                if 'tsl' in exit_reason.lower():
+                    tp_combo.append('TSL')
+                elif 'sl' in exit_reason.lower() or 'stop' in exit_reason.lower():
+                    tp_combo.append('SL')
+                
+                combo_key = '+'.join(tp_combo)
+                exit_combinations[combo_key] += 1
+            else:
+                # No TP hits, just the exit reason
+                exit_combinations[exit_reason] += 1
+        
+        # Convert to percentages
+        exit_stats = {}
+        
+        # Single exit type statistics
+        for exit_type, count in exit_counts.items():
+            percentage = (count / total_trades * 100) if total_trades > 0 else 0
+            exit_stats[f'exit_{exit_type}_count'] = count
+            exit_stats[f'exit_{exit_type}_pct'] = percentage
+        
+        # Combination statistics
+        for combo, count in exit_combinations.items():
+            percentage = (count / total_trades * 100) if total_trades > 0 else 0
+            combo_key = combo.replace('+', '_').replace(' ', '_').lower()
+            exit_stats[f'combo_{combo_key}_count'] = count
+            exit_stats[f'combo_{combo_key}_pct'] = percentage
+        
+        # Summary statistics
+        tp1_exits = sum(1 for trade in trades if hasattr(trade, 'tp_hits') and trade.tp_hits >= 1)
+        tp2_exits = sum(1 for trade in trades if hasattr(trade, 'tp_hits') and trade.tp_hits >= 2)
+        tp3_exits = sum(1 for trade in trades if hasattr(trade, 'tp_hits') and trade.tp_hits >= 3)
+        
+        exit_stats['tp1_hit_count'] = tp1_exits
+        exit_stats['tp1_hit_pct'] = (tp1_exits / total_trades * 100) if total_trades > 0 else 0
+        exit_stats['tp2_hit_count'] = tp2_exits
+        exit_stats['tp2_hit_pct'] = (tp2_exits / total_trades * 100) if total_trades > 0 else 0
+        exit_stats['tp3_hit_count'] = tp3_exits
+        exit_stats['tp3_hit_pct'] = (tp3_exits / total_trades * 100) if total_trades > 0 else 0
+        
+        return exit_stats
     
     @staticmethod
     def _calculate_consecutive_stats(pnl_values: List[float]) -> Dict[str, Any]:
@@ -343,7 +412,23 @@ class TradeAnalyzer:
             'max_consecutive_losses': 0,
             'avg_consecutive_losses': 0,
             'num_wins': 0,
-            'num_losses': 0
+            'num_losses': 0,
+            'tp1_hit_count': 0,
+            'tp1_hit_pct': 0,
+            'tp2_hit_count': 0,
+            'tp2_hit_pct': 0,
+            'tp3_hit_count': 0,
+            'tp3_hit_pct': 0,
+            'exit_take_profit_1_count': 0,
+            'exit_take_profit_1_pct': 0,
+            'exit_take_profit_2_count': 0,
+            'exit_take_profit_2_pct': 0,
+            'exit_take_profit_3_count': 0,
+            'exit_take_profit_3_pct': 0,
+            'exit_trailing_stop_count': 0,
+            'exit_trailing_stop_pct': 0,
+            'exit_stop_loss_count': 0,
+            'exit_stop_loss_pct': 0
         }
     
     @staticmethod
@@ -466,7 +551,18 @@ class TradeExporter:
         if hasattr(trade, 'partial_exits') and trade.partial_exits:
             partial_pnl_sum = 0
             for j, pe in enumerate(trade.partial_exits[:3], 1):
-                pe_type = pe.exit_type if hasattr(pe, 'exit_type') else f'TP{pe.tp_level}' if hasattr(pe, 'tp_level') else 'PARTIAL'
+                # Determine partial exit type
+                if hasattr(pe, 'exit_type'):
+                    pe_type = pe.exit_type
+                elif hasattr(pe, 'tp_level'):
+                    if pe.tp_level == 0:
+                        # tp_level=0 indicates partial profit taking before TP levels
+                        pe_type = 'PPT'  # Partial Profit Taking
+                    else:
+                        # tp_level 1, 2, or 3 are actual TP exits
+                        pe_type = f'TP{pe.tp_level}'
+                else:
+                    pe_type = 'PARTIAL'
                 pe_size = pe.size / 1e6 if hasattr(pe, 'size') else 0
                 pe_pnl = pe.pnl if hasattr(pe, 'pnl') else 0
                 partial_pnl_sum += pe_pnl
@@ -538,6 +634,9 @@ class MonteCarloSimulator:
             'avg_loss_pips': []
         }
         
+        # Track exit statistics across all iterations
+        self.aggregate_exit_stats = defaultdict(list)
+        
         # Clear previous iteration details
         self.iteration_details = []
         self.yearly_performance = defaultdict(list)
@@ -573,6 +672,11 @@ class MonteCarloSimulator:
             for key in all_trade_stats:
                 if key in trade_stats:
                     all_trade_stats[key].append(trade_stats[key])
+            
+            # Track exit statistics
+            for key, value in trade_stats.items():
+                if key.startswith('exit_') or key.startswith('combo_') or key.startswith('tp'):
+                    self.aggregate_exit_stats[key].append(value)
             
             # Keep last iteration data for return
             if i == config.n_iterations - 1:
@@ -729,6 +833,9 @@ class MonteCarloSimulator:
         
         # Display yearly performance breakdown
         self._display_yearly_breakdown()
+        
+        # Display exit statistics
+        self._display_exit_statistics()
     
     def _display_summary_statistics(self):
         """Display summary statistics from all iterations"""
@@ -812,6 +919,100 @@ class MonteCarloSimulator:
                           numalign='right', stralign='left'))
         else:
             print("  No yearly data available")
+    
+    def _display_exit_statistics(self):
+        """Display detailed exit statistics across all iterations"""
+        if not self.aggregate_exit_stats:
+            return
+            
+        print("\n🎯 EXIT STATISTICS ANALYSIS")
+        print("="*100)
+        
+        # Calculate mean percentages for each exit type
+        exit_summary = []
+        
+        # Process exit types (using actual ExitReason enum values)
+        exit_types = ['take_profit_1', 'take_profit_2', 'take_profit_3', 'trailing_stop', 'stop_loss', 'tp1_pullback', 'signal_flip', 'end_of_data']
+        for exit_type in exit_types:
+            pct_key = f"exit_{exit_type}_pct"
+            count_key = f"exit_{exit_type}_count"
+            
+            if pct_key in self.aggregate_exit_stats:
+                percentages = self.aggregate_exit_stats[pct_key]
+                counts = self.aggregate_exit_stats.get(count_key, [])
+                
+                if percentages:
+                    # Format exit names for display
+                    if exit_type.startswith('take_profit_'):
+                        exit_name = exit_type.replace('take_profit_', 'TP').upper()
+                    elif exit_type == 'trailing_stop':
+                        exit_name = 'TSL'
+                    elif exit_type == 'stop_loss':
+                        exit_name = 'SL'
+                    elif exit_type == 'tp1_pullback':
+                        exit_name = 'TP1 PULLBACK'
+                    elif exit_type == 'signal_flip':
+                        exit_name = 'SIGNAL FLIP'
+                    elif exit_type == 'end_of_data':
+                        exit_name = 'END OF DATA'
+                    else:
+                        exit_name = exit_type.replace('_', ' ').upper()
+                    
+                    exit_summary.append({
+                        'Exit Type': exit_name,
+                        'Avg %': f"{np.mean(percentages):.1f}",
+                        'Min %': f"{np.min(percentages):.1f}",
+                        'Max %': f"{np.max(percentages):.1f}",
+                        'Std Dev': f"{np.std(percentages):.1f}",
+                        'Total Count': sum(counts) if counts else 0
+                    })
+        
+        if exit_summary:
+            print("\n🔸 Individual Exit Types:")
+            print(tabulate(exit_summary, headers='keys', tablefmt='simple', 
+                          numalign='right', stralign='left'))
+        
+        # Process exit combinations
+        combo_summary = []
+        combo_keys = [k for k in self.aggregate_exit_stats.keys() if k.startswith('combo_') and k.endswith('_pct')]
+        
+        for combo_key in sorted(combo_keys):
+            percentages = self.aggregate_exit_stats[combo_key]
+            count_key = combo_key.replace('_pct', '_count')
+            counts = self.aggregate_exit_stats.get(count_key, [])
+            
+            if percentages and np.mean(percentages) > 0.1:  # Only show combinations with >0.1% average
+                combo_name = combo_key.replace('combo_', '').replace('_pct', '').replace('_', '+').upper()
+                combo_summary.append({
+                    'Exit Combination': combo_name,
+                    'Avg %': f"{np.mean(percentages):.1f}",
+                    'Min %': f"{np.min(percentages):.1f}",
+                    'Max %': f"{np.max(percentages):.1f}",
+                    'Total Count': sum(counts) if counts else 0
+                })
+        
+        if combo_summary:
+            print("\n🔸 Exit Combinations (>0.1% avg):")
+            # Sort by average percentage descending
+            combo_summary.sort(key=lambda x: float(x['Avg %']), reverse=True)
+            print(tabulate(combo_summary, headers='keys', tablefmt='simple', 
+                          numalign='right', stralign='left'))
+        
+        # Summary insights
+        print("\n💡 Exit Insights:")
+        tp1_pct = np.mean(self.aggregate_exit_stats.get('exit_take_profit_1_pct', [0]))
+        tp2_pct = np.mean(self.aggregate_exit_stats.get('exit_take_profit_2_pct', [0]))
+        tp3_pct = np.mean(self.aggregate_exit_stats.get('exit_take_profit_3_pct', [0]))
+        
+        print(f"  • TP1 reached in {tp1_pct:.1f}% of trades on average")
+        print(f"  • TP2 reached in {tp2_pct:.1f}% of trades on average")
+        print(f"  • TP3 reached in {tp3_pct:.1f}% of trades on average")
+        
+        tsl_pct = np.mean(self.aggregate_exit_stats.get('exit_trailing_stop_pct', [0]))
+        sl_pct = np.mean(self.aggregate_exit_stats.get('exit_stop_loss_pct', [0]))
+        
+        print(f"  • TSL exits: {tsl_pct:.1f}% of trades")
+        print(f"  • SL exits: {sl_pct:.1f}% of trades")
     
     def _calculate_aggregate_stats(self, all_trade_stats: Dict) -> Dict:
         """Calculate aggregate statistics from all iterations"""
@@ -957,6 +1158,63 @@ class BaseRunner(ABC):
         # Save to CSV
         results_df.to_csv(filename, index=False, float_format='%.6f')
         print(f"\n💾 Monte Carlo results saved to: {filename}")
+    
+    def _display_last_iteration_exit_stats(self, results: Dict[str, Any], config_name: str):
+        """Display exit statistics for the last iteration"""
+        if 'trades' not in results or not results['trades']:
+            return
+            
+        trades = results['trades']
+        total_trades = len(trades)
+        
+        print(f"\n🎯 LAST ITERATION EXIT BREAKDOWN - {config_name}")
+        print("="*80)
+        print(f"Total trades in last iteration: {total_trades}")
+        
+        # Count exits by type
+        exit_counts = defaultdict(int)
+        tp_combinations = defaultdict(int)
+        
+        for trade in trades:
+            if hasattr(trade, 'exit_reason'):
+                exit_reason = trade.exit_reason.value if hasattr(trade.exit_reason, 'value') else str(trade.exit_reason)
+                exit_counts[exit_reason] += 1
+                
+                # Track TP combinations
+                if hasattr(trade, 'tp_hits') and trade.tp_hits > 0:
+                    if trade.tp_hits == 1:
+                        tp_combinations['TP1 only'] += 1
+                    elif trade.tp_hits == 2:
+                        tp_combinations['TP1+TP2'] += 1
+                    elif trade.tp_hits >= 3:
+                        tp_combinations['TP1+TP2+TP3'] += 1
+        
+        # Display exit breakdown
+        print("\n📊 Exit Type Breakdown:")
+        exit_summary = []
+        for exit_type, count in sorted(exit_counts.items(), key=lambda x: x[1], reverse=True):
+            percentage = (count / total_trades * 100) if total_trades > 0 else 0
+            exit_summary.append({
+                'Exit Type': exit_type,
+                'Count': count,
+                'Percentage': f"{percentage:.1f}%"
+            })
+        
+        if exit_summary:
+            print(tabulate(exit_summary, headers='keys', tablefmt='simple'))
+        
+        # Display TP combinations if any
+        if tp_combinations:
+            print("\n🎯 Take Profit Combinations:")
+            tp_summary = []
+            for combo, count in sorted(tp_combinations.items(), key=lambda x: x[1], reverse=True):
+                percentage = (count / total_trades * 100) if total_trades > 0 else 0
+                tp_summary.append({
+                    'TP Combination': combo,
+                    'Count': count,
+                    'Percentage': f"{percentage:.1f}%"
+                })
+            print(tabulate(tp_summary, headers='keys', tablefmt='simple'))
 
 
 class SingleCurrencyRunner(BaseRunner):
@@ -1008,6 +1266,10 @@ class SingleCurrencyRunner(BaseRunner):
             
             # Print traditional summary (now condensed)
             self._print_condensed_summary(results_df, config_name)
+            
+            # Display exit statistics for the last iteration
+            if 'last_results' in extra_data and 'trades' in extra_data['last_results']:
+                self._display_last_iteration_exit_stats(extra_data['last_results'], config_name)
             
             # Export trades if enabled
             if self.config.export_trades and 'last_results' in extra_data:

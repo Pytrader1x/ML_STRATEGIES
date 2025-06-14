@@ -862,27 +862,36 @@ class ProductionPlotter:
         
         pip_color = '#43A047' if exit_pips > 0 else '#E53935'
         
-        # Format text with size, pips and P&L in compact format
-        # For final exits, show exit type and pips only (more concise)
+        # Format text with exit type, pips, P&L, and remaining size in compact format
+        remaining_size_m = remaining_size / 1000000
+        
+        # Format P&L compactly
+        if final_pnl is not None and abs(final_pnl) >= 1000:
+            pnl_text = f"${final_pnl/1000:.1f}k"
+        elif final_pnl is not None:
+            pnl_text = f"${final_pnl:.0f}"
+        else:
+            pnl_text = "$0"
+        
         if exit_reason == 'trailing_stop':
-            text = f'TSL|{exit_pips:+.1f}p'
+            text = f'TSL|{exit_pips:+.1f}p|{pnl_text}|{remaining_size_m:.2f}M'
         elif exit_reason == 'stop_loss':
-            text = f'SL|{exit_pips:+.1f}p'
+            text = f'SL|{exit_pips:+.1f}p|{pnl_text}|{remaining_size_m:.2f}M'
         elif 'take_profit' in str(exit_reason):
             # Extract TP number
             tp_num = exit_reason.split('_')[-1] if '_' in exit_reason else '3'
-            text = f'TP{tp_num}|{exit_pips:+.1f}p'
+            text = f'TP{tp_num}|{exit_pips:+.1f}p|{pnl_text}|{remaining_size_m:.2f}M'
         else:
-            text = f'{exit_pips:+.1f}p'
+            text = f'{exit_pips:+.1f}p|{pnl_text}|{remaining_size_m:.2f}M'
             
         ax.text(x_pos[exit_idx] + 0.5, exit_price, 
                text, 
-               fontsize=6, color=pip_color, 
+               fontsize=6.5, color=pip_color, 
                va='center', ha='left', 
-               bbox=dict(boxstyle='round,pad=0.2', 
+               bbox=dict(boxstyle='round,pad=0.25', 
                         facecolor=self.config.COLORS['bg'], 
                         edgecolor=pip_color, 
-                        alpha=0.8))
+                        alpha=0.9))
     
     def _plot_trade_levels(self, ax, x_pos, entry_idx, exit_idx, trade_dict, data_len):
         """Plot TP and SL levels"""
@@ -963,19 +972,29 @@ class ProductionPlotter:
                 # Get partial exit size
                 partial_size = partial_exit.size if hasattr(partial_exit, 'size') else partial_exit.get('size', 0)
                 partial_size_m = partial_size / 1000000
+                # partial_pnl already retrieved above on line 954
                 
-                # Simplified text - just show TP level and pips
-                text = f'TP{tp_level}|+{partial_pips:.1f}p'
+                # Format P&L compactly
+                if partial_pnl is not None and abs(partial_pnl) >= 1000:
+                    pnl_text = f"${partial_pnl/1000:.1f}k"
+                elif partial_pnl is not None:
+                    pnl_text = f"${partial_pnl:.0f}"
+                else:
+                    pnl_text = "$0"
                 
-                # Add compact annotation
+                # Enhanced text - show TP level, pips, P&L, and exit size
+                # Show size with 2 decimals for accuracy (e.g., 0.33M instead of 0.3M)
+                text = f'TP{tp_level}|+{partial_pips:.1f}p|{pnl_text}|{partial_size_m:.2f}M'
+                
+                # Add compact annotation with enhanced information
                 ax.text(x_pos[partial_idx] + 0.3, partial_price, 
                        text, 
-                       fontsize=5, color=exit_color, 
+                       fontsize=5.5, color=exit_color, 
                        va='center', ha='left', 
-                       bbox=dict(boxstyle='round,pad=0.1', 
+                       bbox=dict(boxstyle='round,pad=0.15', 
                                 facecolor=self.config.COLORS['bg'], 
                                 edgecolor=exit_color, 
-                                alpha=0.7))
+                                alpha=0.8))
     
     def _add_confidence_text(self, ax, df):
         """Add confidence text if available"""
