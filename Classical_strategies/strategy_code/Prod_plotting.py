@@ -818,10 +818,10 @@ class ProductionPlotter:
         else:
             exit_color = self.config.TRADE_COLORS['end_of_data']
         
-        # Plot marker
+        # Plot marker - smaller size to reduce visual clutter
         ax.scatter(x_pos[exit_idx], exit_price, 
-                  marker='x', s=200, color=exit_color, 
-                  linewidth=3, zorder=5)
+                  marker='x', s=120, color=exit_color, 
+                  linewidth=2, zorder=5)
         
         # Add pip and P&L annotation
         if direction == 'long':
@@ -863,18 +863,17 @@ class ProductionPlotter:
         pip_color = '#43A047' if exit_pips > 0 else '#E53935'
         
         # Format text with size, pips and P&L in compact format
-        if final_pnl is not None:
-            text = f'{remaining_size:.2f}M|{exit_pips:+.0f}p|${final_pnl:+.0f}'
+        # For final exits, show exit type and pips only (more concise)
+        if exit_reason == 'trailing_stop':
+            text = f'TSL|{exit_pips:+.1f}p'
+        elif exit_reason == 'stop_loss':
+            text = f'SL|{exit_pips:+.1f}p'
+        elif 'take_profit' in str(exit_reason):
+            # Extract TP number
+            tp_num = exit_reason.split('_')[-1] if '_' in exit_reason else '3'
+            text = f'TP{tp_num}|{exit_pips:+.1f}p'
         else:
-            text = f'{remaining_size:.2f}M|{exit_pips:+.0f}p'
-            
-        # Special handling for TSL and SL to show exit type in annotation
-        if exit_reason == 'trailing_stop' and final_pnl is not None:
-            # For TSL, show the P&L more prominently
-            text = f'TSL: {remaining_size:.2f}M|{exit_pips:+.0f}p|${final_pnl:+.0f}'
-        elif exit_reason == 'stop_loss' and final_pnl is not None:
-            # For SL, also show exit type
-            text = f'SL: {remaining_size:.2f}M|{exit_pips:+.0f}p|${final_pnl:+.0f}'
+            text = f'{exit_pips:+.1f}p'
             
         ax.text(x_pos[exit_idx] + 0.5, exit_price, 
                text, 
@@ -915,28 +914,45 @@ class ProductionPlotter:
                    va='center', ha='left', alpha=0.8)
     
     def _plot_partial_exits(self, ax, df, x_pos, trade_dict):
-        """Plot partial exit markers"""
+        """Plot partial exit markers - consolidated to reduce visual spam"""
         partial_exits = trade_dict.get('partial_exits', [])
         entry_price = trade_dict.get('entry_price')
         direction = trade_dict.get('direction')
         
+        if not partial_exits:
+            return
+            
+        # Only plot TP exits (not partial profit exits) to reduce clutter
+        tp_exits = [p for p in partial_exits 
+                    if (hasattr(p, 'tp_level') and p.tp_level > 0) or 
+                       (isinstance(p, dict) and p.get('tp_level', 0) > 0)]
+        
+        if not tp_exits:
+            return
+            
         tp_exit_colors = ['#90EE90', '#3CB371', '#228B22']
         
-        for partial_exit in partial_exits:
+        # Plot only significant TP exits (TP1 and TP3, skip TP2 for clarity)
+        for partial_exit in tp_exits:
+            tp_level = partial_exit.tp_level if hasattr(partial_exit, 'tp_level') else partial_exit.get('tp_level', 0)
+            
+            # Skip TP2 to reduce clutter (only show TP1 and TP3)
+            if tp_level == 2:
+                continue
+                
             partial_time = partial_exit.time if hasattr(partial_exit, 'time') else partial_exit['time']
             partial_price = partial_exit.price if hasattr(partial_exit, 'price') else partial_exit['price']
-            tp_level = partial_exit.tp_level if hasattr(partial_exit, 'tp_level') else partial_exit.get('tp_level', 0)
             partial_pnl = partial_exit.pnl if hasattr(partial_exit, 'pnl') else partial_exit.get('pnl', None)
             
             partial_idx = self._find_time_index(df, partial_time)
             
             if partial_idx is not None:
-                exit_color = tp_exit_colors[min(tp_level - 1, 2)] if tp_level > 0 else '#FFB74D'
+                exit_color = tp_exit_colors[min(tp_level - 1, 2)]
                 
-                # Plot marker
+                # Use smaller markers for partial exits
                 ax.scatter(x_pos[partial_idx], partial_price, 
-                          marker='o', s=100, color=exit_color, 
-                          edgecolor='white', linewidth=1.5, zorder=5)
+                          marker='o', s=60, color=exit_color, 
+                          edgecolor='white', linewidth=1, zorder=5)
                 
                 # Calculate pips
                 if direction == 'long':
@@ -948,21 +964,18 @@ class ProductionPlotter:
                 partial_size = partial_exit.size if hasattr(partial_exit, 'size') else partial_exit.get('size', 0)
                 partial_size_m = partial_size / 1000000
                 
-                # Format text with size, pips and P&L in compact format
-                if partial_pnl is not None:
-                    text = f'{partial_size_m:.2f}M|+{partial_pips:.0f}p|${partial_pnl:+.0f}'
-                else:
-                    text = f'{partial_size_m:.2f}M|+{partial_pips:.0f}p'
+                # Simplified text - just show TP level and pips
+                text = f'TP{tp_level}|+{partial_pips:.1f}p'
                 
-                # Add annotation
-                ax.text(x_pos[partial_idx] + 0.5, partial_price, 
+                # Add compact annotation
+                ax.text(x_pos[partial_idx] + 0.3, partial_price, 
                        text, 
-                       fontsize=6, color=exit_color, 
+                       fontsize=5, color=exit_color, 
                        va='center', ha='left', 
-                       bbox=dict(boxstyle='round,pad=0.2', 
+                       bbox=dict(boxstyle='round,pad=0.1', 
                                 facecolor=self.config.COLORS['bg'], 
                                 edgecolor=exit_color, 
-                                alpha=0.8))
+                                alpha=0.7))
     
     def _add_confidence_text(self, ax, df):
         """Add confidence text if available"""

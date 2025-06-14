@@ -136,6 +136,7 @@ class Trade:
     tp_exit_times: List[pd.Timestamp] = field(default_factory=list)
     tp_exit_prices: List[float] = field(default_factory=list)
     partial_exits: List[PartialExit] = field(default_factory=list)
+    exit_count: int = 0  # Track number of exits per trade (max 3)
     
     def __post_init__(self):
         """Initialize remaining size if not provided"""
@@ -547,25 +548,32 @@ class OptimizedSignalGenerator:
         """Enhanced exit condition checking"""
         current_price = row['Close']
         
-        # Check take profit levels
+        # Check take profit levels - max 3 exits per trade
+        if trade.exit_count >= 3 or trade.remaining_size <= 0:
+            return False, None, 0.0
+            
         if trade.direction == TradeDirection.LONG:
             # Check for TP1 pullback
             if trade.tp_hits >= 2 and row['Low'] <= trade.take_profits[0]:
                 return True, ExitReason.TP1_PULLBACK, 1.0
             
-            # Check normal TPs
+            # Check normal TPs (only hit each TP once)
             for i, tp in enumerate(trade.take_profits):
-                if i >= trade.tp_hits and row['High'] >= tp:
-                    return True, ExitReason(f'take_profit_{i+1}'), 0.33
+                if i == trade.tp_hits and row['High'] >= tp:
+                    # Third exit takes all remaining position
+                    exit_percent = 1.0 if trade.exit_count == 2 else 0.33
+                    return True, ExitReason(f'take_profit_{i+1}'), exit_percent
         else:
             # Check for TP1 pullback
             if trade.tp_hits >= 2 and row['High'] >= trade.take_profits[0]:
                 return True, ExitReason.TP1_PULLBACK, 1.0
             
-            # Check normal TPs
+            # Check normal TPs (only hit each TP once)
             for i, tp in enumerate(trade.take_profits):
-                if i >= trade.tp_hits and row['Low'] <= tp:
-                    return True, ExitReason(f'take_profit_{i+1}'), 0.33
+                if i == trade.tp_hits and row['Low'] <= tp:
+                    # Third exit takes all remaining position
+                    exit_percent = 1.0 if trade.exit_count == 2 else 0.33
+                    return True, ExitReason(f'take_profit_{i+1}'), exit_percent
         
         # Check stop loss
         current_stop = trade.trailing_stop if trade.trailing_stop is not None else trade.stop_loss
@@ -607,6 +615,9 @@ class OptimizedProdStrategy:
         # Initialize state
         self.reset()
         
+        # Track if strategy parameters have been printed
+        self._params_printed = False
+        
         # Initialize random number generator for slippage
         np.random.seed(None)  # Use current time as seed for randomness
     
@@ -621,6 +632,81 @@ class OptimizedProdStrategy:
         # Initialize comprehensive trade logger
         self.trade_log_detailed = []
         self.enable_trade_logging = True
+    
+    def print_strategy_parameters(self):
+        """Pretty print strategy configuration and entry logic"""
+        print("\n" + "="*80)
+        print("🎯 STRATEGY CONFIGURATION")
+        print("="*80)
+        
+        # Entry Logic
+        print(f"📊 ENTRY LOGIC:")
+        if self.config.relaxed_mode:
+            print(f"   Mode: RELAXED (⚠️  Single indicator entry)")
+            print(f"   Entry: NeuroTrend (NTI) direction alone")
+            print(f"   Position: {self.config.relaxed_position_multiplier*100:.0f}% of normal size")
+        else:
+            print(f"   Mode: STANDARD (✅ Three confluence required)")
+            print(f"   Entry: ALL must align - NTI Direction + Market Bias + IC Regime (1 or 2)")
+            print(f"   Long:  NTI=1 AND MB=1 AND IC∈[1,2] (trending)")
+            print(f"   Short: NTI=-1 AND MB=-1 AND IC∈[1,2] (trending)")
+        
+        # Risk Management
+        print(f"\n💰 RISK MANAGEMENT:")
+        print(f"   Initial Capital: ${self.config.initial_capital:,.0f}")
+        print(f"   Risk per Trade: {self.config.risk_per_trade*100:.1f}%")
+        print(f"   Position Size: 1.0M units (standard)")
+        if self.config.relaxed_mode:
+            print(f"   Relaxed Size: {self.config.relaxed_position_multiplier:.1f}M units")
+        
+        # Stop Loss
+        print(f"\n🛑 STOP LOSS:")
+        print(f"   ATR Multiplier: {self.config.sl_atr_multiplier}x")
+        print(f"   Maximum: {self.config.sl_max_pips} pips")
+        print(f"   Volatility Adj: {'ON' if self.config.sl_volatility_adjustment else 'OFF'}")
+        print(f"   Range Market: {self.config.sl_range_market_multiplier}x multiplier")
+        
+        # Take Profit
+        print(f"\n🎯 TAKE PROFIT:")
+        print(f"   TP Levels: {self.config.tp_atr_multipliers} (ATR multipliers)")
+        print(f"   Max TP: {self.config.max_tp_percent*100:.1f}% of price")
+        print(f"   Range Market: {self.config.tp_range_market_multiplier}x")
+        print(f"   Trend Market: {self.config.tp_trend_market_multiplier}x")
+        print(f"   Chop Market: {self.config.tp_chop_market_multiplier}x")
+        
+        # Trailing Stop
+        print(f"\n📈 TRAILING STOP:")
+        print(f"   Activation: {self.config.tsl_activation_pips} pips profit")
+        if self.config.relaxed_mode:
+            print(f"   Relaxed Activation: {self.config.relaxed_tsl_activation_pips} pips")
+        print(f"   Min Profit: {self.config.tsl_min_profit_pips} pips guaranteed")
+        print(f"   ATR Multiplier: {self.config.trailing_atr_multiplier}x")
+        print(f"   Initial Buffer: {self.config.tsl_initial_buffer_multiplier}x")
+        
+        # Exit Logic
+        print(f"\n🚪 EXIT LOGIC:")
+        print(f"   Signal Flip Exit: {'ON' if self.config.exit_on_signal_flip else 'OFF'}")
+        if self.config.exit_on_signal_flip:
+            print(f"   Min Profit: {self.config.signal_flip_min_profit_pips} pips")
+            print(f"   Min Time: {self.config.signal_flip_min_time_hours} hours")
+            print(f"   Partial Exit: {self.config.signal_flip_partial_exit_percent*100:.0f}%")
+        
+        print(f"   Partial Profit: {'ON' if self.config.partial_profit_before_sl else 'OFF'}")
+        if self.config.partial_profit_before_sl:
+            print(f"   Trigger: {self.config.partial_profit_sl_distance_ratio*100:.0f}% to SL")
+            print(f"   Size: {self.config.partial_profit_size_percent*100:.0f}%")
+        
+        # Advanced Features
+        print(f"\n⚙️  ADVANCED:")
+        print(f"   Intelligent Sizing: {'ON' if self.config.intelligent_sizing else 'OFF'}")
+        print(f"   Realistic Costs: {'ON' if self.config.realistic_costs else 'OFF'}")
+        if self.config.realistic_costs:
+            print(f"   Entry Slippage: {self.config.entry_slippage_pips} pips")
+            print(f"   SL Slippage: {self.config.stop_loss_slippage_pips} pips")
+        print(f"   Daily Sharpe: {'ON' if self.config.use_daily_sharpe else 'OFF'}")
+        print(f"   Debug Mode: {'ON' if self.config.debug_decisions else 'OFF'}")
+        
+        print("="*80)
     
     def _log_trade_action(self, action_type: str, trade: Trade, price: float, size: float,
                          reason: str, indicators: dict, pnl: float = 0, cumulative_pnl: float = 0,
@@ -775,6 +861,7 @@ class OptimizedProdStrategy:
         """Execute a partial exit with custom percentage"""
         # Calculate exit size based on REMAINING position, not original
         # This ensures we don't over-exit the position
+        original_remaining = trade.remaining_size
         exit_size = trade.remaining_size * exit_percent
         trade.remaining_size -= exit_size
         
@@ -784,7 +871,32 @@ class OptimizedProdStrategy:
         )
         
         # Update trade state
+        old_partial_pnl = trade.partial_pnl
         trade.partial_pnl += partial_pnl
+        
+        # Debug validation
+        if self.config.debug_decisions:
+            print(f"\n    🔍 PARTIAL EXIT VALIDATION:")
+            print(f"       Exit %: {exit_percent*100:.1f}%")
+            print(f"       Original Remaining: {original_remaining/1e6:.2f}M")
+            print(f"       Exit Size: {exit_size/1e6:.2f}M")
+            print(f"       New Remaining: {trade.remaining_size/1e6:.2f}M")
+            print(f"       Entry: {trade.entry_price:.5f} → Exit: {exit_price:.5f}")
+            print(f"       Direction: {trade.direction.value}")
+            print(f"       Pips: {pips:.1f}")
+            print(f"       Partial P&L: ${partial_pnl:,.2f}")
+            print(f"       Previous Partial P&L: ${old_partial_pnl:,.2f}")
+            print(f"       Total Partial P&L: ${trade.partial_pnl:,.2f}")
+            
+            # Manual P&L verification
+            if trade.direction == TradeDirection.LONG:
+                expected_pips = (exit_price - trade.entry_price) / 0.0001
+            else:
+                expected_pips = (trade.entry_price - exit_price) / 0.0001
+            expected_pnl = (exit_size / 1e6) * 100 * expected_pips
+            print(f"       ✅ Manual Check: {expected_pips:.1f} pips = ${expected_pnl:,.2f}")
+            if abs(partial_pnl - expected_pnl) > 1:
+                print(f"       ⚠️  P&L MISMATCH! Expected: ${expected_pnl:,.2f}, Got: ${partial_pnl:,.2f}")
         
         # Log partial exit
         if self.enable_trade_logging:
@@ -818,7 +930,11 @@ class OptimizedProdStrategy:
         ))
         
         # Update capital
+        old_capital = self.current_capital
         self.current_capital += partial_pnl
+        
+        if self.config.debug_decisions:
+            print(f"       Capital: ${old_capital:,.0f} → ${self.current_capital:,.0f} (+${partial_pnl:,.2f})")
         
         if self.config.verbose:
             logger.info(f"Partial exit ({exit_percent*100:.0f}%) at {exit_price:.5f}, P&L: ${partial_pnl:.2f}")
@@ -830,6 +946,10 @@ class OptimizedProdStrategy:
             trade.exit_time = exit_time
             trade.exit_price = exit_price
             trade.exit_reason = exit_reason or ExitReason.SIGNAL_FLIP
+            
+            if self.config.debug_decisions:
+                print(f"       🏁 TRADE COMPLETED (partial exit consumed all remaining)")
+            
             return trade
         
         return None  # Trade continues
@@ -891,6 +1011,11 @@ class OptimizedProdStrategy:
         
         # Store df reference for annualization factor calculation
         self.df = df
+        
+        # Print strategy parameters only once per strategy instance
+        if not self._params_printed:
+            self.print_strategy_parameters()
+            self._params_printed = True
         
         if self.config.debug_decisions:
             print(f"\n=== STARTING BACKTEST ===")
@@ -1011,6 +1136,11 @@ class OptimizedProdStrategy:
                             print(f"  🏁 TRADE COMPLETED: Final P&L ${completed_trade.pnl:,.0f} | Total trades: {len(self.trades) + 1}")
                         self.trades.append(self.current_trade)
                         self.current_trade = None
+                    else:
+                        # Partial exit - trade continues
+                        if self.config.debug_decisions:
+                            print(f"  ↪️  PARTIAL EXIT: Trade continues with {self.current_trade.remaining_size/self.config.min_lot_size:.2f}M remaining")
+                        # Trade continues - current_trade stays active
             
             # Check for new entry
             elif self.current_trade is None:
@@ -1056,8 +1186,40 @@ class OptimizedProdStrategy:
                     
                     if self.config.debug_decisions:
                         size_millions = self.current_trade.position_size / self.config.min_lot_size
-                        print(f"     Entry: {self.current_trade.entry_price:.5f} | Size: {size_millions:.1f}M")
-                        print(f"     SL: {self.current_trade.stop_loss:.5f} | TPs: {[f'{tp:.5f}' for tp in self.current_trade.take_profits]}")
+                        print(f"\n    🔍 TRADE ENTRY VALIDATION:")
+                        print(f"       Entry Price: {self.current_trade.entry_price:.5f}")
+                        print(f"       Position Size: {size_millions:.1f}M units")
+                        print(f"       Direction: {self.current_trade.direction.value}")
+                        print(f"       Stop Loss: {self.current_trade.stop_loss:.5f}")
+                        sl_pips = abs(self.current_trade.entry_price - self.current_trade.stop_loss) / 0.0001
+                        print(f"       SL Distance: {sl_pips:.1f} pips")
+                        print(f"       Take Profits:")
+                        for i, tp in enumerate(self.current_trade.take_profits):
+                            tp_pips = abs(tp - self.current_trade.entry_price) / 0.0001
+                            print(f"         TP{i+1}: {tp:.5f} ({tp_pips:.1f} pips)")
+                        print(f"       Confidence: {self.current_trade.confidence:.1f}")
+                        print(f"       Relaxed Mode: {self.current_trade.is_relaxed}")
+                        
+                        # Risk calculation
+                        max_loss_pips = sl_pips
+                        max_loss_dollars = (size_millions * 100 * max_loss_pips)
+                        risk_percent = (max_loss_dollars / self.current_capital) * 100
+                        print(f"       Max Risk: ${max_loss_dollars:,.0f} ({risk_percent:.2f}% of capital)")
+                        
+                        # Entry signal validation
+                        print(f"       Signal Validation:")
+                        print(f"         NTI Direction: {current_row['NTI_Direction']}")
+                        print(f"         Market Bias: {current_row['MB_Bias']}")
+                        print(f"         IC Regime: {current_row['IC_Regime']} ({current_row.get('IC_RegimeName', 'Unknown')})")
+                        
+                        if not self.config.relaxed_mode:
+                            nti_ok = current_row['NTI_Direction'] in [1, -1]
+                            mb_ok = current_row['MB_Bias'] in [1, -1]
+                            ic_ok = current_row['IC_Regime'] in [1, 2]
+                            alignment = nti_ok and mb_ok and ic_ok and (current_row['NTI_Direction'] == current_row['MB_Bias'])
+                            print(f"         ✅ Standard Entry: NTI={nti_ok}, MB={mb_ok}, IC={ic_ok}, Aligned={alignment}")
+                        else:
+                            print(f"         ⚠️  Relaxed Entry: Only NTI required")
                     
                     if self.config.verbose:
                         size_millions = self.current_trade.position_size / self.config.min_lot_size
@@ -1128,25 +1290,33 @@ class OptimizedProdStrategy:
         if 'take_profit' in exit_reason.value:
             tp_index = int(exit_reason.value.split('_')[-1]) - 1
             
-            # CLEAN TP EXIT LOGIC:
-            # - TP1 (tp_index=0): Exit 1/3 of original, but not more than remaining
-            # - TP2 (tp_index=1): Exit 1/3 of original, but not more than remaining  
-            # - TP3 (tp_index=2): Exit all remaining
-            
+            # Check if we've already hit max exits
+            if trade.exit_count >= 3:
+                if self.config.debug_decisions:
+                    print(f"  ⚠️  Trade already has 3 exits - cannot exit again")
+                return None
+                
+            # Check if we have remaining position
+            if trade.remaining_size <= 0:
+                if self.config.debug_decisions:
+                    print(f"  ⚠️  No remaining position to exit")
+                return None
+                
             # Prevent multiple exits at same TP level
             if tp_index < trade.tp_hits:
-                # This TP was already hit - should never happen with proper logic
                 if self.config.debug_decisions:
                     print(f"  ⚠️  WARNING: Attempted to hit TP{tp_index+1} again (already at TP{trade.tp_hits})")
                 return None
                 
-            if tp_index < 2:  # TP1 or TP2
+            # Determine exit size based on exit count
+            if trade.exit_count == 2:  # Third exit - close all remaining
+                exit_size = trade.remaining_size
+                if self.config.debug_decisions:
+                    print(f"  🔥 FINAL EXIT: Closing remaining {exit_size:.2f}M at TP{tp_index+1}")
+            else:  # First or second exit
                 # Exit 1/3 of ORIGINAL position, but not more than remaining
                 desired_exit = trade.position_size / 3.0
                 exit_size = min(desired_exit, trade.remaining_size)
-            else:  # TP3
-                # Exit all remaining
-                exit_size = trade.remaining_size
                 
             # Safety check
             if exit_size <= 0:
@@ -1155,6 +1325,7 @@ class OptimizedProdStrategy:
                 return None
                 
             trade.remaining_size -= exit_size
+            trade.exit_count += 1  # Increment exit counter
             
             partial_pnl, pips = self.pnl_calculator.calculate_pnl(
                 trade.entry_price, exit_price, exit_size, trade.direction
@@ -1176,8 +1347,26 @@ class OptimizedProdStrategy:
             # Debug logging for partial exits
             if self.config.debug_decisions:
                 size_in_millions = exit_size / self.config.min_lot_size
-                print(f"  📊 TP{tp_index+1} PARTIAL EXIT: {size_in_millions:.2f}M @ {exit_price:.5f}")
-                print(f"     Original size: {trade.position_size/self.config.min_lot_size:.2f}M, Remaining: {trade.remaining_size/self.config.min_lot_size:.2f}M")
+                print(f"\n    🎯 TP{tp_index+1} VALIDATION:")
+                print(f"       Exit Size: {size_in_millions:.2f}M @ {exit_price:.5f}")
+                print(f"       Entry: {trade.entry_price:.5f} → TP{tp_index+1}: {exit_price:.5f}")
+                print(f"       Direction: {trade.direction.value}")
+                print(f"       Pips: {pips:.1f}")
+                print(f"       P&L: ${partial_pnl:,.2f}")
+                print(f"       Original Size: {trade.position_size/self.config.min_lot_size:.2f}M")
+                print(f"       Remaining: {trade.remaining_size/self.config.min_lot_size:.2f}M")
+                print(f"       TP Hits: {trade.tp_hits}")
+                print(f"       Exit Count: {trade.exit_count}/3")
+                
+                # Manual verification
+                if trade.direction == TradeDirection.LONG:
+                    expected_pips = (exit_price - trade.entry_price) / 0.0001
+                else:
+                    expected_pips = (trade.entry_price - exit_price) / 0.0001
+                expected_pnl = (exit_size / 1e6) * 100 * expected_pips
+                print(f"       ✅ Manual Check: {expected_pips:.1f} pips = ${expected_pnl:,.2f}")
+                if abs(partial_pnl - expected_pnl) > 1:
+                    print(f"       ⚠️  P&L MISMATCH! Expected: ${expected_pnl:,.2f}, Got: ${partial_pnl:,.2f}")
             
             # Log TP exit
             if self.enable_trade_logging:
@@ -1195,9 +1384,12 @@ class OptimizedProdStrategy:
                     timestamp=exit_time
                 )
             
-            if trade.tp_hits >= 3:
-                trade.remaining_size = 0
+            # Check if trade is complete after this exit
+            if trade.exit_count >= 3 or trade.remaining_size <= 0:
+                trade.remaining_size = 0  # Ensure position is exactly 0
                 trade.pnl = trade.partial_pnl
+                if self.config.debug_decisions:
+                    print(f"  ✅ TRADE COMPLETE: {trade.exit_count} exits, remaining size: {trade.remaining_size}")
                 return trade
             
             return None  # Continue with partial position
@@ -1205,13 +1397,18 @@ class OptimizedProdStrategy:
         elif exit_reason == ExitReason.TP1_PULLBACK:
             exit_price = trade.take_profits[0]
         
-        # Calculate final P&L
+        # Calculate final P&L for full exits (non-TP exits)
         if trade.remaining_size > 0:
             remaining_pnl, pips = self.pnl_calculator.calculate_pnl(
                 trade.entry_price, exit_price, trade.remaining_size, trade.direction
             )
             trade.pnl = trade.partial_pnl + remaining_pnl
             self.current_capital += remaining_pnl
+            trade.exit_count += 1  # Increment exit counter for full exits
+            
+            if self.config.debug_decisions:
+                print(f"  🔥 FULL EXIT: Closing remaining {trade.remaining_size/self.config.min_lot_size:.2f}M")
+                print(f"     Exit Count: {trade.exit_count}")
             
             # Log final exit
             if self.enable_trade_logging:
@@ -1279,7 +1476,8 @@ class OptimizedProdStrategy:
                 # Use last value of each day (end-of-day equity)
                 daily_equity = equity_df.resample('D').last().dropna()
                 
-                if len(daily_equity) > 1:
+                # Need at least 30 days for meaningful daily Sharpe calculation
+                if len(daily_equity) >= 30:
                     # Calculate daily returns
                     daily_returns = daily_equity['capital'].pct_change().dropna()
                     
@@ -1288,13 +1486,64 @@ class OptimizedProdStrategy:
                         sharpe_ratio = daily_returns.mean() / daily_returns.std(ddof=1) * np.sqrt(252)
                     else:
                         sharpe_ratio = 0
+                        
+                    if self.config.debug_decisions:
+                        print(f"\n📊 SHARPE CALCULATION (Daily Method):")
+                        print(f"   Daily periods: {len(daily_equity)}")
+                        print(f"   Daily returns: {len(daily_returns)}")
+                        print(f"   Mean daily return: {daily_returns.mean():.6f}")
+                        print(f"   Daily volatility: {daily_returns.std(ddof=1):.6f}")
+                        print(f"   Sharpe ratio: {sharpe_ratio:.3f}")
                 else:
-                    # Not enough daily data, use bar-level calculation as fallback
+                    # Too few days - need to debug what's happening
+                    if self.config.debug_decisions:
+                        print(f"\n⚠️  SHARPE DEBUG: Only {len(daily_equity)} days of data")
+                        print(f"   Total equity points: {len(self.equity_curve)}")
+                        print(f"   Data timeframe: {self.df.index[0]} to {self.df.index[-1]}")
+                        
+                        # Show actual equity values
+                        print(f"   Starting capital: ${self.equity_curve[0]:,.2f}")
+                        print(f"   Ending capital: ${self.equity_curve[-1]:,.2f}")
+                        print(f"   Total P&L: ${self.equity_curve[-1] - self.equity_curve[0]:,.2f}")
+                        
+                    # Calculate returns the proper way
                     returns = np.diff(self.equity_curve) / self.equity_curve[:-1]
+                    
                     if len(returns) > 1 and np.std(returns, ddof=1) > 0:
-                        # Get appropriate annualization factor
+                        mean_return = np.mean(returns)
+                        vol = np.std(returns, ddof=1)
+                        
+                        if self.config.debug_decisions:
+                            print(f"   Bar-level returns: {len(returns)} observations")
+                            print(f"   Mean return per bar: {mean_return:.8f}")
+                            print(f"   Return volatility per bar: {vol:.8f}")
+                            print(f"   Annualized mean: {mean_return * 252 * 96:.4f}")
+                            print(f"   Annualized vol: {vol * np.sqrt(252 * 96):.4f}")
+                        
+                        # Use proper annualization for 15-min bars
                         ann_factor = annualization_factor_from_df(self.df)
-                        sharpe_ratio = np.mean(returns) / np.std(returns, ddof=1) * ann_factor
+                        sharpe_ratio = mean_return / vol * ann_factor
+                        
+                        if self.config.debug_decisions:
+                            print(f"   Annualization factor: {ann_factor:.1f}")
+                            print(f"   Raw Sharpe: {sharpe_ratio:.6f}")
+                            
+                            # Manual verification
+                            manual_ann_mean = mean_return * 252 * 96  # 252 days * 96 bars/day
+                            manual_ann_vol = vol * np.sqrt(252 * 96)
+                            manual_sharpe = manual_ann_mean / manual_ann_vol
+                            print(f"   Manual verification: {manual_sharpe:.6f}")
+                            
+                            # Analyze why Sharpe might be inflated
+                            zero_returns = np.sum(returns == 0)
+                            non_zero_returns = len(returns) - zero_returns
+                            print(f"   Zero return bars: {zero_returns}/{len(returns)} ({zero_returns/len(returns)*100:.1f}%)")
+                            print(f"   Active trading bars: {non_zero_returns} ({non_zero_returns/len(returns)*100:.1f}%)")
+                            
+                            if zero_returns > len(returns) * 0.8:  # More than 80% flat
+                                print(f"   ⚠️  WARNING: Equity curve is {zero_returns/len(returns)*100:.1f}% flat!")
+                                print(f"   This creates artificially low volatility and inflated Sharpe ratio.")
+                                print(f"   Use larger sample sizes (5000+ bars) for realistic metrics.")
                     else:
                         sharpe_ratio = 0
             else:
