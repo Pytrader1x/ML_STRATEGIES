@@ -1130,7 +1130,7 @@ class OptimizedProdStrategy:
                         )[0]
                         print(f"     Exit price: {exit_price:.5f} | Exit P&L: ${final_pnl:,.0f}")
                     
-                    # Execute exit - ALWAYS use _execute_full_exit for TP exits
+                    # Execute exit - ALWAYS use _execute_full_exit for TP exits updated
                     if 'take_profit' in exit_reason.value:
                         # TP exits must go through _execute_full_exit for correct sizing
                         if self.config.debug_decisions:
