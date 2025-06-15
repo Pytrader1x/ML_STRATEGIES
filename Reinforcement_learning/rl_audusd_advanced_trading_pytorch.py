@@ -436,28 +436,45 @@ class TradingAgent:
 # %% Training Functions
 def train_agent(agent: TradingAgent, env: TradingEnvironment, df_train: pd.DataFrame, 
                 window_size: int, episodes: int):
-    """Train the RL agent"""
+    """Train the RL agent with randomly sampled windows"""
     
     episode_rewards = []
     episode_profits = []
     episode_times = []
-    
-    # Use subset of data for faster training
-    train_subset_size = min(Config.TRAIN_SUBSET_SIZE, len(df_train) - window_size - 1)
-    print(f"\nTraining on subset of {train_subset_size} samples (out of {len(df_train)})")
+    window_positions = []  # Track where we sampled from
     
     import time
     
+    print(f"\nTraining with random window sampling on {len(df_train)} total samples")
+    print(f"Window sizes will grow from {Config.MIN_WINDOW_SIZE} to {Config.MAX_WINDOW_SIZE}")
+    
     for e in range(episodes):
+        # Calculate current window size (grows over episodes)
+        window_growth_factor = min(Config.WINDOW_GROWTH_RATE ** (e // 10), 
+                                  Config.MAX_WINDOW_SIZE / Config.MIN_WINDOW_SIZE)
+        current_window_size = int(Config.MIN_WINDOW_SIZE * window_growth_factor)
+        current_window_size = min(current_window_size, Config.MAX_WINDOW_SIZE)
+        
+        # Randomly sample a starting position
+        max_start = len(df_train) - window_size - current_window_size - 1
+        start_pos = random.randint(window_size, max_start)
+        end_pos = start_pos + current_window_size
+        
+        # Track window position
+        window_positions.append((start_pos, end_pos))
+        
         print(f"\nEpisode {e+1}/{episodes}")
+        print(f"Window: {df_train.index[start_pos].strftime('%Y-%m-%d')} to {df_train.index[end_pos].strftime('%Y-%m-%d')} ({current_window_size} bars)")
+        
         episode_start_time = time.time()
         env.reset()
         
-        state = env.get_state(window_size, window_size)
+        state = env.get_state(start_pos, window_size)
         total_reward = 0
         
-        # Progress bar for episode - train on same subset each time
-        for t in tqdm(range(window_size, window_size + train_subset_size), desc=f"Episode {e+1}"):
+        # Progress bar for episode
+        pbar = tqdm(range(start_pos, end_pos), desc=f"Episode {e+1}")
+        for t in pbar:
             # Agent takes action
             action = agent.act(state)
             
@@ -467,56 +484,149 @@ def train_agent(agent: TradingAgent, env: TradingEnvironment, df_train: pd.DataF
             
             # Get next state
             next_state = env.get_state(t + 1, window_size)
-            done = (t >= window_size + train_subset_size - 1)
+            done = (t >= end_pos - 1)
             
             # Store experience
             agent.remember(state, action, reward, next_state, done)
             state = next_state
             
-            # Train on mini-batch
-            if len(agent.memory) > Config.BATCH_SIZE:
+            # Train on mini-batch every N steps
+            if len(agent.memory) > Config.BATCH_SIZE and t % 10 == 0:
                 agent.replay(Config.BATCH_SIZE)
             
-            if done or t == window_size + train_subset_size - 1:
-                # Update target network
-                agent.update_target_model()
-                
-                # Calculate episode metrics
-                final_balance = env.balance
-                for pos in env.positions:  # Close remaining positions
-                    final_balance += pos['size']
-                
-                profit = final_balance - Config.INITIAL_BALANCE
-                profit_pct = (profit / Config.INITIAL_BALANCE) * 100
-                
-                # Calculate timing
-                episode_time = time.time() - episode_start_time
-                episode_times.append(episode_time)
-                avg_time = np.mean(episode_times[-5:])  # Average of last 5 episodes
-                est_remaining = avg_time * (episodes - e - 1)
-                
-                print(f"\nEpisode {e+1} - Total Reward: {total_reward:.2f}")
-                print(f"Final Balance: ${final_balance:.2f} ({profit_pct:.2f}%)")
-                print(f"Total Trades: {len(env.trade_history)}")
-                print(f"Epsilon: {agent.epsilon:.4f}")
-                print(f"Episode Time: {episode_time:.1f}s")
-                print(f"Est. Time Remaining: {est_remaining/60:.1f} minutes")
-                
-                episode_rewards.append(total_reward)
-                episode_profits.append(profit_pct)
-                
-                # Save model periodically
-                if (e + 1) % 5 == 0:
-                    os.makedirs('models', exist_ok=True)
-                    torch.save({
-                        'model_state_dict': agent.model.state_dict(),
-                        'optimizer_state_dict': agent.optimizer.state_dict(),
-                        'epsilon': agent.epsilon
-                    }, f'models/rl_audusd_ep{e+1}.pth')
-                
+            # Update progress bar with current profit
+            current_balance = env.balance + sum(pos['size'] for pos in env.positions)
+            current_profit = (current_balance - Config.INITIAL_BALANCE) / Config.INITIAL_BALANCE * 100
+            pbar.set_postfix({'Profit%': f'{current_profit:.2f}'})
+            
+            if done:
                 break
+        
+        # Episode complete - update target network
+        agent.update_target_model()
+        
+        # Calculate episode metrics
+        final_balance = env.balance
+        for pos in env.positions:  # Close remaining positions
+            exit_price = df_train['Close'].iloc[end_pos-1]
+            pnl = pos['size'] * ((exit_price - pos['entry_price']) / pos['entry_price'])
+            final_balance += pos['size'] + pnl
+        
+        profit = final_balance - Config.INITIAL_BALANCE
+        profit_pct = (profit / Config.INITIAL_BALANCE) * 100
+        
+        # Calculate timing
+        episode_time = time.time() - episode_start_time
+        episode_times.append(episode_time)
+        avg_time = np.mean(episode_times[-5:])  # Average of last 5 episodes
+        est_remaining = avg_time * (episodes - e - 1)
+        
+        print(f"\nEpisode {e+1} Summary:")
+        print(f"  Window Size: {current_window_size} bars")
+        print(f"  Total Reward: {total_reward:.2f}")
+        print(f"  Final Balance: ${final_balance:.2f} ({profit_pct:.2f}%)")
+        print(f"  Total Trades: {len(env.trade_history)}")
+        if env.trade_history:
+            wins = len([t for t in env.trade_history if t['pnl'] > 0])
+            win_rate = wins / len(env.trade_history) * 100
+            print(f"  Win Rate: {win_rate:.1f}%")
+        print(f"  Epsilon: {agent.epsilon:.4f}")
+        print(f"  Episode Time: {episode_time:.1f}s")
+        print(f"  Est. Time Remaining: {est_remaining/60:.1f} minutes")
+        
+        episode_rewards.append(total_reward)
+        episode_profits.append(profit_pct)
+        
+        # Run validation episode
+        if (e + 1) % Config.VALIDATION_FREQUENCY == 0:
+            print(f"\n--- Running Validation Episode ---")
+            val_profit = run_validation_episode(agent, df_train, window_size)
+            print(f"Validation Profit: {val_profit:.2f}%")
+            
+            # Early stopping if performing well
+            recent_profits = episode_profits[-10:] if len(episode_profits) >= 10 else episode_profits
+            if len(recent_profits) >= 5 and all(p > 1.0 for p in recent_profits[-5:]):
+                print("\n*** Early stopping: Consistent profitable performance achieved! ***")
+                break
+        
+        # Save model periodically
+        if (e + 1) % 10 == 0:
+            os.makedirs('models', exist_ok=True)
+            torch.save({
+                'model_state_dict': agent.model.state_dict(),
+                'optimizer_state_dict': agent.optimizer.state_dict(),
+                'epsilon': agent.epsilon,
+                'episode': e + 1,
+                'window_positions': window_positions
+            }, f'models/rl_audusd_ep{e+1}.pth')
+            print(f"Model checkpoint saved")
+    
+    # Print coverage statistics
+    print(f"\n{'='*50}")
+    print("Training Coverage Statistics:")
+    total_bars_seen = sum(end - start for start, end in window_positions)
+    unique_coverage = calculate_coverage(window_positions, len(df_train))
+    print(f"Total bars processed: {total_bars_seen:,}")
+    print(f"Unique bars covered: {unique_coverage:,} ({unique_coverage/len(df_train)*100:.1f}%)")
+    print(f"Average bars per episode: {total_bars_seen/episodes:,.0f}")
+    print(f"={'='*50}")
     
     return episode_rewards, episode_profits
+
+
+def run_validation_episode(agent: TradingAgent, df_train: pd.DataFrame, window_size: int) -> float:
+    """Run a validation episode on unseen data"""
+    # Get feature columns from the first memory sample
+    if len(agent.memory) > 0:
+        num_features = len(agent.memory[0][0]) // window_size
+        feature_cols = df_train.columns[-num_features:].tolist()
+    else:
+        # Fallback - use normalized columns
+        feature_cols = [col for col in df_train.columns if col.endswith('_norm')]
+    
+    # Create a temporary environment
+    env = TradingEnvironment(df_train, feature_cols)
+    
+    # Sample a random validation window
+    max_start = len(df_train) - window_size - Config.VALIDATION_WINDOW - 1
+    start_pos = random.randint(window_size, max_start)
+    end_pos = start_pos + Config.VALIDATION_WINDOW
+    
+    # Reset environment
+    env.reset()
+    state = env.get_state(start_pos, window_size)
+    
+    # Run episode without training
+    original_epsilon = agent.epsilon
+    agent.epsilon = 0.0  # No exploration during validation
+    
+    for t in range(start_pos, end_pos):
+        action = agent.act(state)
+        reward, _ = env.execute_action(action, t)
+        next_state = env.get_state(t + 1, window_size)
+        state = next_state
+    
+    # Calculate final profit
+    final_balance = env.balance
+    for pos in env.positions:
+        exit_price = df_train['Close'].iloc[end_pos-1]
+        pnl = pos['size'] * ((exit_price - pos['entry_price']) / pos['entry_price'])
+        final_balance += pos['size'] + pnl
+    
+    profit_pct = (final_balance - Config.INITIAL_BALANCE) / Config.INITIAL_BALANCE * 100
+    
+    # Restore epsilon
+    agent.epsilon = original_epsilon
+    
+    return profit_pct
+
+
+def calculate_coverage(window_positions: List[Tuple[int, int]], total_length: int) -> int:
+    """Calculate how many unique bars were covered during training"""
+    covered = set()
+    for start, end in window_positions:
+        covered.update(range(start, end))
+    return len(covered)
 
 
 # %% Testing Functions
@@ -602,13 +712,19 @@ def plot_results(df: pd.DataFrame, states_buy: List[int], states_sell: List[int]
 
 
 def plot_training_progress(episode_rewards: List[float], episode_profits: List[float]):
-    """Plot training progress"""
+    """Plot enhanced training progress"""
     
-    fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(12, 8))
+    fig = plt.figure(figsize=(15, 10))
+    
+    # Create a 2x2 grid
+    ax1 = plt.subplot(2, 2, 1)
+    ax2 = plt.subplot(2, 2, 2)
+    ax3 = plt.subplot(2, 2, 3)
+    ax4 = plt.subplot(2, 2, 4)
     
     # Plot rewards
-    ax1.plot(episode_rewards, label='Episode Reward')
-    ax1.plot(pd.Series(episode_rewards).rolling(5).mean(), label='5-Episode MA', linewidth=2)
+    ax1.plot(episode_rewards, label='Episode Reward', alpha=0.6)
+    ax1.plot(pd.Series(episode_rewards).rolling(10).mean(), label='10-Episode MA', linewidth=2)
     ax1.set_xlabel('Episode')
     ax1.set_ylabel('Total Reward')
     ax1.set_title('Training Progress - Rewards')
@@ -616,22 +732,63 @@ def plot_training_progress(episode_rewards: List[float], episode_profits: List[f
     ax1.grid(True, alpha=0.3)
     
     # Plot profits
-    ax2.plot(episode_profits, label='Episode Profit %')
-    ax2.plot(pd.Series(episode_profits).rolling(5).mean(), label='5-Episode MA', linewidth=2)
+    ax2.plot(episode_profits, label='Episode Profit %', alpha=0.6)
+    ax2.plot(pd.Series(episode_profits).rolling(10).mean(), label='10-Episode MA', linewidth=2)
+    ax2.axhline(y=0, color='red', linestyle='--', alpha=0.5)
     ax2.set_xlabel('Episode')
     ax2.set_ylabel('Profit %')
     ax2.set_title('Training Progress - Profits')
     ax2.legend()
     ax2.grid(True, alpha=0.3)
     
+    # Plot profit distribution
+    ax3.hist(episode_profits, bins=30, alpha=0.7, color='green' if np.mean(episode_profits) > 0 else 'red')
+    ax3.axvline(x=np.mean(episode_profits), color='black', linestyle='--', label=f'Mean: {np.mean(episode_profits):.2f}%')
+    ax3.axvline(x=0, color='gray', linestyle='-', alpha=0.5)
+    ax3.set_xlabel('Profit %')
+    ax3.set_ylabel('Frequency')
+    ax3.set_title('Profit Distribution')
+    ax3.legend()
+    ax3.grid(True, alpha=0.3)
+    
+    # Plot cumulative metrics
+    cumulative_profit = np.cumsum(episode_profits)
+    positive_episodes = [1 if p > 0 else 0 for p in episode_profits]
+    win_rate = pd.Series(positive_episodes).expanding().mean() * 100
+    
+    ax4.plot(win_rate, label='Win Rate %', color='blue')
+    ax4.axhline(y=50, color='gray', linestyle='--', alpha=0.5)
+    ax4.set_xlabel('Episode')
+    ax4.set_ylabel('Win Rate %')
+    ax4.set_title('Cumulative Win Rate')
+    ax4.legend()
+    ax4.grid(True, alpha=0.3)
+    ax4.set_ylim(0, 100)
+    
+    # Add overall statistics
+    fig.suptitle(f'Training Summary - Final Win Rate: {win_rate.iloc[-1]:.1f}%, Avg Profit: {np.mean(episode_profits):.2f}%', 
+                 fontsize=14)
+    
     plt.tight_layout()
-    plt.savefig('training_progress_pytorch.png', dpi=300, bbox_inches='tight')
+    plt.savefig('training_progress_enhanced.png', dpi=300, bbox_inches='tight')
     plt.show()
 
 
 # %% Main Execution
-def main():
-    """Main training and testing pipeline"""
+def main(fast_mode=False):
+    """Main training and testing pipeline
+    
+    Args:
+        fast_mode: If True, run with reduced parameters for quick testing
+    """
+    
+    # Override config for fast mode
+    if fast_mode:
+        print("Running in FAST MODE - reduced parameters for quick testing")
+        Config.EPISODES = 10
+        Config.MIN_WINDOW_SIZE = 2000
+        Config.MAX_WINDOW_SIZE = 5000
+        Config.VALIDATION_FREQUENCY = 5
     
     # Create directories
     os.makedirs('models', exist_ok=True)
@@ -714,4 +871,9 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    import argparse
+    parser = argparse.ArgumentParser(description='RL Trading Agent for AUDUSD')
+    parser.add_argument('--fast', action='store_true', help='Run in fast mode with reduced parameters')
+    args = parser.parse_args()
+    
+    main(fast_mode=args.fast)
