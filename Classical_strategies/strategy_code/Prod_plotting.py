@@ -486,7 +486,9 @@ class ProductionPlotter:
                     'exit_reason': trade.exit_reason.value if isinstance(trade.exit_reason, ExitReason) else trade.exit_reason,
                     'take_profits': trade.take_profits,
                     'stop_loss': trade.stop_loss,
-                    'partial_exits': trade.partial_exits
+                    'partial_exits': trade.partial_exits,
+                    'pnl': trade.pnl,  # Add the P&L field!
+                    'position_size': trade.position_size
                 }
             else:
                 trade_dict = trade
