@@ -91,7 +91,7 @@ class Config:
     GAMMA = 0.995  # Higher for long-term
     EPSILON = 1.0
     EPSILON_MIN = 0.01
-    EPSILON_DECAY = 0.99995  # Slower per-step decay (was 0.9995)
+    EPSILON_DECAY = 0.999995  # Slower per-step decay (was 0.9995)
     
     # Trading Parameters - USD based with 1M lots
     INITIAL_BALANCE = 1_000_000  # Start with USD 1M
@@ -376,13 +376,25 @@ class TradingEnvironment:
         return stop_loss, take_profit
     
     def execute_action(self, action: int, index: int) -> Tuple[float, Dict]:
-        """Execute trading action with improved logic"""
+        """Execute trading action with NAV-Δ (Mark-to-Market) reward system
+        
+        Reward Philosophy:
+        - Reward = scaled change in net asset value (NAV)
+        - NAV = cash balance + unrealized P&L
+        - No junk rewards, no entry bonuses, no asymmetric scaling
+        - Pure alignment with actual trading profitability
+        """
         self.current_step = index
         current_price = self.df['Close'].iloc[index]
-        reward = 0
         info = {'action': action, 'price': current_price}
         
-        # Update existing position
+        # Calculate NAV before action (B_{t-1} + U_{t-1})
+        nav_before = self.balance
+        if self.position:
+            # Add unrealized P&L before update
+            nav_before += self.position['unrealized_pnl']
+        
+        # Update existing position's unrealized P&L
         if self.position:
             self.position['unrealized_pnl'] = (
                 (current_price - self.position['entry_price']) * 
@@ -393,19 +405,19 @@ class TradingEnvironment:
             # Check stop loss and take profit
             if self.position['direction'] == 1:  # Long
                 if current_price <= self.position['stop_loss']:
-                    reward += self._close_position(current_price, 'stop_loss')
+                    self._close_position(current_price, 'stop_loss')
                 elif current_price >= self.position['take_profit']:
-                    reward += self._close_position(current_price, 'take_profit')
+                    self._close_position(current_price, 'take_profit')
             else:  # Short
                 if current_price >= self.position['stop_loss']:
-                    reward += self._close_position(current_price, 'stop_loss')
+                    self._close_position(current_price, 'stop_loss')
                 elif current_price <= self.position['take_profit']:
-                    reward += self._close_position(current_price, 'take_profit')
+                    self._close_position(current_price, 'take_profit')
         
-        # Execute new actions with simplified logic
+        # Execute new actions
         if action == 0:  # Hold
-            # Small penalty for holding to encourage trading
-            reward -= 0.001
+            # No action taken
+            pass
             
         elif action == 1:  # Buy
             if not self.position:
@@ -427,14 +439,10 @@ class TradingEnvironment:
                 }
                 
                 info['position_opened'] = 'long'
-                
-                # Immediate reward for good entry
-                if self.df['Composite_Signal'].iloc[index] > 0.5:
-                    reward += 0.01
                     
             elif self.position['direction'] == -1:
                 # Close short and open long
-                reward += self._close_position(current_price, 'manual')
+                self._close_position(current_price, 'manual')
                 
                 # Open long position
                 stop_loss, take_profit = self.calculate_adaptive_sl_tp(
@@ -475,14 +483,10 @@ class TradingEnvironment:
                 }
                 
                 info['position_opened'] = 'short'
-                
-                # Immediate reward for good entry
-                if self.df['Composite_Signal'].iloc[index] < -0.5:
-                    reward += 0.01
                     
             elif self.position['direction'] == 1:
                 # Close long position (manual exit)
-                reward += self._close_position(current_price, 'manual')
+                self._close_position(current_price, 'manual')
                 
                 # Open short position
                 stop_loss, take_profit = self.calculate_adaptive_sl_tp(
@@ -506,17 +510,30 @@ class TradingEnvironment:
         # Update metrics
         self._update_metrics()
         
-        # Track equity curve at each step
-        self.equity_curve.append(self.balance)
-        
-        # Add continuous reward shaping
+        # Calculate NAV after action (B_t + U_t)
+        nav_after = self.balance
         if self.position:
-            # Reward for unrealized profit
-            reward += self.position['unrealized_pnl'] / self.initial_balance * 10
-            
-            # Penalty for holding too long
-            if self.position['holding_time'] > 100:
-                reward -= 0.002
+            # Add current unrealized P&L
+            nav_after += self.position['unrealized_pnl']
+        
+        # Track equity curve at each step (using NAV)
+        self.equity_curve.append(nav_after)
+        
+        # Calculate NAV-Δ reward: r_t = (B_t + U_t) - (B_{t-1} + U_{t-1})
+        nav_delta = nav_after - nav_before
+        
+        # Scale by 1000 to get typical rewards in [-1, 1] range
+        # This symmetric scaling ensures no bias toward long or short
+        reward = (nav_delta / self.initial_balance) * 1000
+        
+        # Optional: Small constant time penalty to encourage efficient exits
+        reward -= 0.0001
+        
+        # Optional: Tiny capped unrealized P&L shaping (for sparse rewards)
+        if self.position and abs(self.position['unrealized_pnl']) > 0:
+            # Cap at ±0.001 to avoid dominating the main reward
+            shaping = np.clip(self.position['unrealized_pnl'] / self.initial_balance, -0.001, 0.001)
+            reward += shaping
         
         return reward, info
     
@@ -542,10 +559,14 @@ class TradingEnvironment:
         """Return fixed position size - always 1M units"""
         return Config.POSITION_SIZE
     
-    def _close_position(self, exit_price: float, exit_type: str) -> float:
-        """Close position and calculate reward"""
+    def _close_position(self, exit_price: float, exit_type: str) -> None:
+        """Close position and update balance
+        
+        Note: Rewards are now calculated in execute_action() using NAV-Δ.
+        This method only handles position closure and balance updates.
+        """
         if not self.position:
-            return 0
+            return
         
         # Calculate P&L
         if self.position['direction'] == 1:  # Long
@@ -556,27 +577,13 @@ class TradingEnvironment:
         # With 1M units, pnl is already in USD
         self.balance += pnl
         
-        # Calculate reward
-        pnl_pct = pnl / self.initial_balance
-        
-        if exit_type == 'take_profit':
-            reward = pnl_pct * 100  # Large reward for hitting TP
-        elif exit_type == 'stop_loss':
-            reward = pnl_pct * 50  # Smaller penalty for SL (risk management is good)
-        else:
-            reward = pnl_pct * 75  # Manual exit
-        
-        # Bonus for good trades
-        if pnl > 0 and self.position['entry_signal_strength'] * self.position['direction'] > 0.5:
-            reward += 0.05  # Bonus for following signals
-        
         # Record trade with enhanced metrics
         self.trade_history.append({
             'entry_price': self.position['entry_price'],
             'exit_price': exit_price,
             'direction': self.position['direction'],
             'pnl': pnl,
-            'pnl_pct': pnl_pct,
+            'pnl_pct': pnl / self.initial_balance,
             'holding_time': self.position['holding_time'],
             'exit_type': exit_type,
             'tp_exit': exit_type == 'take_profit',
@@ -587,7 +594,6 @@ class TradingEnvironment:
         })
         
         self.position = None
-        return reward
     
     def _update_metrics(self):
         """Update performance metrics"""
@@ -1067,13 +1073,12 @@ def main(fast_mode: bool = False):
     equity_curve = env_test.get_equity_curve()
     
     if len(equity_curve) > 1:
-        # Calculate daily returns from equity curve
-        # Resample to daily (assuming 96 bars per day for 15-minute data)
-        daily_equity = equity_curve.resample('D', on=df_test.index[:len(equity_curve)]).last()
-        daily_returns = daily_equity.pct_change().dropna()
+        # Calculate per-bar returns
+        bar_returns = equity_curve.pct_change().dropna()
         
-        if len(daily_returns) > 0 and daily_returns.std() > 0:
-            sharpe = daily_returns.mean() / daily_returns.std() * np.sqrt(252)
+        if len(bar_returns) > 0 and bar_returns.std() > 0:
+            # Annualize: 96 bars per day (15-minute bars), 252 trading days per year
+            sharpe = bar_returns.mean() / bar_returns.std() * np.sqrt(252 * 96)
         else:
             sharpe = 0
     else:
@@ -1097,7 +1102,7 @@ def main(fast_mode: bool = False):
         # Average drawdown
         test_avg_drawdown = np.mean([t.get('drawdown', 0) for t in test_trades_data]) * 100
         
-        print(f"\nTest Results:")
+        print("\nTest Results:")
         print(f"Final Profit: ${test_profit_usd:,.0f} ({test_profit_pct:.2f}%)")
         print(f"Total Trades: {len(test_trades_data)}")
         print(f"Win Rate: {test_win_rate:.1f}%")
