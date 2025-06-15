@@ -33,6 +33,14 @@ A production-ready trading strategy implementation with comprehensive backtestin
 - **Issue**: TP1 pullback could trigger in the same candle as a TP2 exit when candle high reached TP2 and low pulled back to TP1
 - **Solution**: Modified check_exit_conditions to track exits within the current candle and prevent TP1 pullback if any TP exit already occurred
 
+### 6. Intrabar Stop-Loss Feature (NEW)
+- **Feature**: Added optional intrabar stop-loss checking
+- **Configuration**: New `intrabar_stop_on_touch` parameter (default: False)
+- **Behavior**: 
+  - When False (default): Stop loss only triggers if candle closes beyond stop level
+  - When True: Stop loss triggers if candle high/low touches stop level
+- **Benefits**: More realistic stop-loss execution for strategies that use hard stops
+
 ## Project Structure
 
 ```
@@ -80,7 +88,8 @@ strategy_config = OptimizedStrategyConfig(
     sl_max_pips=10.0,
     tp_atr_multipliers=(0.2, 0.3, 0.5),
     tsl_activation_pips=15,
-    tsl_min_profit_pips=1
+    tsl_min_profit_pips=1,
+    intrabar_stop_on_touch=False  # Set to True for intrabar stop-loss
 )
 ```
 

@@ -314,6 +314,9 @@ class OptimizedStrategyConfig:
     
     # Sharpe ratio calculation
     use_daily_sharpe: bool = True  # If True, resample to daily for Sharpe calculation; if False, use bar-level data
+    
+    # Intrabar stop loss
+    intrabar_stop_on_touch: bool = False  # If True, trigger SL if any bar touches it (not just close)
 
 
 # ============================================================================
@@ -596,10 +599,21 @@ class OptimizedSignalGenerator:
         # Check stop loss
         current_stop = trade.trailing_stop if trade.trailing_stop is not None else trade.stop_loss
         
-        if trade.direction == TradeDirection.LONG and current_price <= current_stop:
-            exit_reason = ExitReason.TRAILING_STOP if trade.trailing_stop is not None else ExitReason.STOP_LOSS
-            return True, exit_reason, 1.0
-        elif trade.direction == TradeDirection.SHORT and current_price >= current_stop:
+        # Determine if stop loss was touched based on config
+        if self.config.intrabar_stop_on_touch:
+            # Check if bar's high/low touched the stop
+            if trade.direction == TradeDirection.LONG:
+                stop_touched = row['Low'] <= current_stop
+            else:
+                stop_touched = row['High'] >= current_stop
+        else:
+            # Original logic: check if close breached the stop
+            if trade.direction == TradeDirection.LONG:
+                stop_touched = current_price <= current_stop
+            else:
+                stop_touched = current_price >= current_stop
+        
+        if stop_touched:
             exit_reason = ExitReason.TRAILING_STOP if trade.trailing_stop is not None else ExitReason.STOP_LOSS
             return True, exit_reason, 1.0
         

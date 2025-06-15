@@ -32,6 +32,11 @@
    - Organized remaining files
    - Updated documentation
 
+7. **[DONE] Add intrabar stop-loss feature**
+   - Added `intrabar_stop_on_touch` configuration parameter
+   - Implemented logic to check high/low for stop loss touches
+   - Maintains backward compatibility with default close-only behavior
+
 ## Future Enhancements 🚀
 
 ### High Priority
