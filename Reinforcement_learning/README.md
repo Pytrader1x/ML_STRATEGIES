@@ -140,6 +140,10 @@ Reinforcement_learning/
 ├── v2_final_improvements.md                   # Epsilon & Sharpe improvements
 ├── v2_simplified_actions_usd.md              # Action space simplification
 ├── v2_episode_plotting.md                     # Plotting implementation
+├── v2_nav_delta_reward_implementation.md     # NAV-delta reward system
+├── v2_enhanced_chart_upgrades.md             # Chart visualization upgrades
+├── v2_plot_fixes_implementation.md           # Plot readability fixes
+├── v2_trading_engine_fixes.md                # Trading engine improvements
 └── README.md                                  # This file
 ```
 
@@ -167,9 +171,36 @@ Reinforcement_learning/
    - Per-episode trade visualization
 
 5. **Slower Epsilon Decay**
-   - Changed from 0.9995 to 0.99995
-   - More exploration during training
-   - Better convergence
+   - Episode-based decay (0.95 per episode)
+   - Starts at 0.9 for better exploration
+   - More stable convergence
+
+### Trading Engine Improvements
+6. **Pure NAV-Delta Reward System**
+   - Removed reward shaping for cleaner learning signal
+   - Agent optimizes directly for profit (NAV change)
+   - Formula: `reward = (nav_delta / initial_balance) * 1000 - 0.0001`
+
+7. **Realistic Transaction Costs**
+   - $20 per 1M AUDUSD round trip (≈0.2 pips)
+   - Applied on position close
+   - Tracked separately from gross P&L
+
+8. **Action Masking with Signals**
+   - Prevents counter-trend trades
+   - Bullish signal (>0.2) → no selling allowed
+   - Bearish signal (<-0.2) → no buying allowed
+
+9. **Position Management**
+   - Minimum holding period: 4 bars (1 hour on 15-min data)
+   - Minimum stop-loss distance: 5 pips
+   - Prevents overtrading and excessive costs
+
+10. **Advanced Visualization**
+    - Color-coded trade markers (green=winning longs, red=winning shorts, grey=losses)
+    - Per-trade P&L bar chart
+    - 4-row layout with position tracking
+    - Dynamic y-axis scaling for readability
 
 ## Future Enhancements
 
