@@ -546,9 +546,11 @@ class OptimizedSignalGenerator:
             return current_price <= trade.entry_price - target_distance
     
     def check_exit_conditions(self, row: pd.Series, trade: Trade, 
-                            current_time: pd.Timestamp) -> Tuple[bool, Optional[ExitReason], float]:
+                            current_time: pd.Timestamp, 
+                            exits_in_candle: List[ExitReason] = None) -> Tuple[bool, Optional[ExitReason], float]:
         """Enhanced exit condition checking"""
         current_price = row['Close']
+        exits_in_candle = exits_in_candle or []
         
         # Debug: Print TP checking details
         if self.config.debug_decisions and len(trade.take_profits) > 0:
@@ -563,26 +565,32 @@ class OptimizedSignalGenerator:
             return False, None, 0.0
             
         if trade.direction == TradeDirection.LONG:
-            # Check normal TPs FIRST (only check TPs that haven't been hit yet)
+            # Check normal TPs (only check TPs that haven't been hit yet)
             for i, tp in enumerate(trade.take_profits):
                 if i + 1 > trade.tp_hits and row['High'] >= tp:
                     # Always exit remaining position when hitting any TP level
                     exit_percent = 1.0 if trade.exit_count >= 2 else 0.33
                     return True, ExitReason(f'take_profit_{i+1}'), exit_percent
             
-            # Check for TP1 pullback AFTER checking all pending TPs
-            if trade.tp_hits >= 2 and row['Low'] <= trade.take_profits[0]:
+            # Check for TP1 pullback ONLY if:
+            # 1. We've already hit TP2 in a previous candle (tp_hits >= 2)
+            # 2. No TP exit happened in this candle yet
+            tp_exit_in_candle = any('take_profit' in exit.value if hasattr(exit, 'value') else str(exit) for exit in exits_in_candle)
+            if trade.tp_hits >= 2 and row['Low'] <= trade.take_profits[0] and not tp_exit_in_candle:
                 return True, ExitReason.TP1_PULLBACK, 1.0
         else:
-            # Check normal TPs FIRST (only check TPs that haven't been hit yet)
+            # Check normal TPs (only check TPs that haven't been hit yet)
             for i, tp in enumerate(trade.take_profits):
                 if i + 1 > trade.tp_hits and row['Low'] <= tp:
                     # Always exit remaining position when hitting any TP level
                     exit_percent = 1.0 if trade.exit_count >= 2 else 0.33
                     return True, ExitReason(f'take_profit_{i+1}'), exit_percent
             
-            # Check for TP1 pullback AFTER checking all pending TPs
-            if trade.tp_hits >= 2 and row['High'] >= trade.take_profits[0]:
+            # Check for TP1 pullback ONLY if:
+            # 1. We've already hit TP2 in a previous candle (tp_hits >= 2)
+            # 2. No TP exit happened in this candle yet
+            tp_exit_in_candle = any('take_profit' in exit.value if hasattr(exit, 'value') else str(exit) for exit in exits_in_candle)
+            if trade.tp_hits >= 2 and row['High'] >= trade.take_profits[0] and not tp_exit_in_candle:
                 return True, ExitReason.TP1_PULLBACK, 1.0
         
         # Check stop loss
@@ -1111,7 +1119,7 @@ class OptimizedProdStrategy:
                 # Continue checking for exits while we have remaining position
                 while self.current_trade is not None and self.current_trade.remaining_size > 0 and not trade_completed:
                     should_exit, exit_reason, exit_percent = self.signal_generator.check_exit_conditions(
-                        current_row, self.current_trade, current_time
+                        current_row, self.current_trade, current_time, exits_in_candle
                     )
                     
                     if not should_exit:
