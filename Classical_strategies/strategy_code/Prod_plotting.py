@@ -842,10 +842,17 @@ class ProductionPlotter:
         partial_exits = trade_dict.get('partial_exits', [])
         remaining_size = position_size
         partial_pnl_sum = 0
+        
+        # Calculate remaining size BEFORE the final exit
         for pe in partial_exits:
+            pe_time = pe.time if hasattr(pe, 'time') else pe.get('time')
             pe_size = pe.size if hasattr(pe, 'size') else pe.get('size', 0)
-            remaining_size -= pe_size / 1000000
-            # Sum partial P&Ls
+            
+            # Only subtract if this is NOT the final exit
+            if pe_time != final_exit_time:
+                remaining_size -= pe_size / 1000000
+            
+            # Sum all partial P&Ls
             pe_pnl = pe.pnl if hasattr(pe, 'pnl') else pe.get('pnl', 0)
             partial_pnl_sum += pe_pnl
             
@@ -893,15 +900,22 @@ class ProductionPlotter:
         
         # Format individual exit P&L compactly
         if abs(individual_exit_pnl) >= 1000:
-            individual_pnl_text = f"${individual_exit_pnl/1000:.1f}k"
+            individual_pnl_text = f"${individual_exit_pnl/1000:+.1f}k"
         else:
-            individual_pnl_text = f"${individual_exit_pnl:.0f}"
+            individual_pnl_text = f"${individual_exit_pnl:+.0f}"
         
-        # Format total trade P&L compactly
+        # Format total trade P&L compactly  
         if total_trade_pnl is not None and abs(total_trade_pnl) >= 1000:
-            total_pnl_text = f"${total_trade_pnl/1000:.1f}k"
+            # Ensure sign is included
+            if total_trade_pnl > 0:
+                total_pnl_text = f"$+{total_trade_pnl/1000:.1f}k"
+            else:
+                total_pnl_text = f"${total_trade_pnl/1000:.1f}k"
         elif total_trade_pnl is not None:
-            total_pnl_text = f"${total_trade_pnl:.0f}"
+            if total_trade_pnl > 0:
+                total_pnl_text = f"$+{total_trade_pnl:.0f}"
+            else:
+                total_pnl_text = f"${total_trade_pnl:.0f}"
         else:
             total_pnl_text = "$0"
         
