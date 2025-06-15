@@ -90,7 +90,7 @@ class Config:
     GAMMA = 0.995  # Higher for long-term
     EPSILON = 0.9   # Start at 0.9
     EPSILON_MIN = 0.01
-    EPSILON_DECAY = 0.99985  # Per-step decay to reach 0.01 by ~30k steps (6 episodes) 
+    EPSILON_DECAY = 0.999865  # Per-step decay 10% slower - reach 0.01 by ~33k steps (6-7 episodes) 
     
     # Trading Parameters - USD based with 1M lots
     INITIAL_BALANCE = 1_000_000  # Start with USD 1M
