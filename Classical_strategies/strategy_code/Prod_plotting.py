@@ -921,17 +921,24 @@ class ProductionPlotter:
         
         # Create text with format: "TP3|+31.3p|$300|Total $1300|0.25M"
         exit_reason_str = str(exit_reason)
-        if exit_reason == 'trailing_stop':
-            text = f'TSL|{exit_pips:+.1f}p|{individual_pnl_text}|Total {total_pnl_text}|{exit_size_m:.2f}M'
-        elif exit_reason == 'stop_loss':
-            text = f'SL|{exit_pips:+.1f}p|{individual_pnl_text}|Total {total_pnl_text}|{exit_size_m:.2f}M'
-        elif 'take_profit' in exit_reason_str:
-            # Extract TP number
-            tp_num = exit_reason.split('_')[-1] if '_' in exit_reason else '3'
-            text = f'TP{tp_num}|{exit_pips:+.1f}p|{individual_pnl_text}|Total {total_pnl_text}|{exit_size_m:.2f}M'
-        elif exit_reason == 'tp1_pullback' or 'tp1_pullback' in exit_reason_str:
+        
+        # Check for TP1 pullback first (before general take_profit check)
+        if 'TP1_PULLBACK' in exit_reason_str or 'tp1_pullback' in exit_reason_str.lower():
             # TP1 pullback is the final exit at TP1 price
             text = f'TP1 PB|{exit_pips:+.1f}p|{individual_pnl_text}|Total {total_pnl_text}|{exit_size_m:.2f}M'
+        elif 'trailing_stop' in exit_reason_str.lower():
+            text = f'TSL|{exit_pips:+.1f}p|{individual_pnl_text}|Total {total_pnl_text}|{exit_size_m:.2f}M'
+        elif 'stop_loss' in exit_reason_str.lower():
+            text = f'SL|{exit_pips:+.1f}p|{individual_pnl_text}|Total {total_pnl_text}|{exit_size_m:.2f}M'
+        elif 'take_profit' in exit_reason_str.lower():
+            # Extract TP number from string like 'ExitReason.TAKE_PROFIT_1' or 'take_profit_1'
+            if 'TAKE_PROFIT_' in exit_reason_str:
+                tp_num = exit_reason_str.split('TAKE_PROFIT_')[-1]
+            elif 'take_profit_' in exit_reason_str:
+                tp_num = exit_reason_str.split('take_profit_')[-1]
+            else:
+                tp_num = '3'
+            text = f'TP{tp_num}|{exit_pips:+.1f}p|{individual_pnl_text}|Total {total_pnl_text}|{exit_size_m:.2f}M'
         else:
             text = f'{exit_pips:+.1f}p|{individual_pnl_text}|Total {total_pnl_text}|{exit_size_m:.2f}M'
             
