@@ -90,7 +90,11 @@ class Config:
     GAMMA = 0.995  # Higher for long-term
     EPSILON = 1.0
     EPSILON_MIN = 0.01
-    EPSILON_DECAY = 0.99975  # Slower per-step decay (was 0.9995)
+
+    # Epsilon decay per-step: smaller values = slower decay, larger values = faster decay
+    # Examples: 0.90 (fast decay) → 0.9995 (medium) → 0.99975 (slow) → 0.9999 (very slow)
+    #           ↑ faster decay                                                    ↑ slower decay
+    EPSILON_DECAY = 0.99985  # Slower per-step decay (was 0.9995) 
     
     # Trading Parameters - USD based with 1M lots
     INITIAL_BALANCE = 1_000_000  # Start with USD 1M
@@ -582,6 +586,7 @@ class TradingEnvironment:
             'exit_price': exit_price,
             'direction': self.position['direction'],
             'pnl': pnl,
+            'pnl_usd': pnl,  # Already in USD with 1M positions
             'pnl_pct': pnl / self.initial_balance,
             'holding_time': self.position['holding_time'],
             'exit_type': exit_type,
@@ -943,28 +948,43 @@ def train_agent(agent: TradingAgent, env: TradingEnvironment, df_train: pd.DataF
             # Get price series for this window
             prices = df_train['Close'].iloc[start_idx:end_idx].values
             
-            # Build entry/exit data
-            entry_indices = []
-            exit_indices = []
+            # Build color-coded entry/exit data
+            win_entries = []
+            win_exits = []
+            lose_entries = []
+            lose_exits = []
+            entry_pnl = []
+            exit_pnl = []
             
-            for trade in trades:
+            for i, trade in enumerate(trades):
                 entry_idx = trade.get('entry_index', 0) - start_idx
                 exit_idx = entry_idx + trade['holding_time']
                 
+                # Check if trade was profitable
+                win = trade['pnl_usd'] >= 0
+                
                 if 0 <= entry_idx < len(prices):
-                    entry_indices.append(entry_idx)
+                    if win:
+                        win_entries.append((entry_idx, prices[entry_idx], i, trade['pnl_usd'], trade['direction']))
+                    else:
+                        lose_entries.append((entry_idx, prices[entry_idx], i, trade['pnl_usd'], trade['direction']))
+                        
                 if 0 <= exit_idx < len(prices):
-                    exit_indices.append(exit_idx)
+                    if win:
+                        win_exits.append((exit_idx, prices[exit_idx], i, trade['pnl_usd'], trade['direction']))
+                    else:
+                        lose_exits.append((exit_idx, prices[exit_idx], i, trade['pnl_usd'], trade['direction']))
             
-            # Create 3-row subplot: price/trades on top, position in middle, cumulative PnL at bottom
+            # Create 4-row subplot
             fig = make_subplots(
-                rows=3, cols=1,
+                rows=4, cols=1,
                 shared_xaxes=True,
-                row_heights=[0.5, 0.25, 0.25],
-                vertical_spacing=0.05,
+                row_heights=[0.45, 0.2, 0.15, 0.2],
+                vertical_spacing=0.03,
                 subplot_titles=(
                     f"Episode {episode+1} - Price & Trades",
                     "Position Size & Direction",
+                    "Per-Trade P&L",
                     "Cumulative P&L (USD)"
                 )
             )
@@ -976,39 +996,113 @@ def train_agent(agent: TradingAgent, env: TradingEnvironment, df_train: pd.DataF
                     y=prices,
                     mode="lines",
                     name="AUDUSD Price",
-                    line=dict(color='blue', width=1)
+                    line=dict(color='blue', width=1),
+                    showlegend=True
                 ),
                 row=1, col=1
             )
             
-            # Add entry markers
-            if entry_indices:
+            # Add color-coded entry markers
+            # Winning long trades (green)
+            if any(e for e in win_entries if e[4] == 1):
+                win_long_entries = [e for e in win_entries if e[4] == 1]
                 fig.add_trace(
                     go.Scatter(
-                        x=entry_indices,
-                        y=[prices[i] for i in entry_indices if i < len(prices)],
+                        x=[e[0] for e in win_long_entries],
+                        y=[e[1] for e in win_long_entries],
                         mode="markers",
                         marker_symbol="triangle-up",
-                        marker=dict(color="green", size=10),
-                        name="Entry",
-                        text=[f"Entry {i+1}" for i in range(len(entry_indices))],
-                        hovertemplate="<b>%{text}</b><br>Bar: %{x}<br>Price: %{y:.5f}<extra></extra>"
+                        marker=dict(color="green", size=12),
+                        name="Win Long Entry",
+                        text=[f"Trade {e[2]+1}<br>P&L: ${e[3]:,.0f}" for e in win_long_entries],
+                        hovertemplate="<b>%{text}</b><br>Bar: %{x}<br>Price: %{y:.5f}<extra></extra>",
+                        showlegend=True
+                    ),
+                    row=1, col=1
+                )
+                
+            # Winning short trades (red)
+            if any(e for e in win_entries if e[4] == -1):
+                win_short_entries = [e for e in win_entries if e[4] == -1]
+                fig.add_trace(
+                    go.Scatter(
+                        x=[e[0] for e in win_short_entries],
+                        y=[e[1] for e in win_short_entries],
+                        mode="markers",
+                        marker_symbol="triangle-up",
+                        marker=dict(color="red", size=12),
+                        name="Win Short Entry",
+                        text=[f"Trade {e[2]+1}<br>P&L: ${e[3]:,.0f}" for e in win_short_entries],
+                        hovertemplate="<b>%{text}</b><br>Bar: %{x}<br>Price: %{y:.5f}<extra></extra>",
+                        showlegend=True
+                    ),
+                    row=1, col=1
+                )
+                
+            # Losing trades (grey)
+            if lose_entries:
+                fig.add_trace(
+                    go.Scatter(
+                        x=[e[0] for e in lose_entries],
+                        y=[e[1] for e in lose_entries],
+                        mode="markers",
+                        marker_symbol="triangle-up",
+                        marker=dict(color="grey", size=12),
+                        name="Loss Entry",
+                        text=[f"Trade {e[2]+1}<br>P&L: ${e[3]:,.0f}" for e in lose_entries],
+                        hovertemplate="<b>%{text}</b><br>Bar: %{x}<br>Price: %{y:.5f}<extra></extra>",
+                        showlegend=True
                     ),
                     row=1, col=1
                 )
             
-            # Add exit markers
-            if exit_indices:
+            # Add color-coded exit markers
+            # Winning long trades (green)
+            if any(e for e in win_exits if e[4] == 1):
+                win_long_exits = [e for e in win_exits if e[4] == 1]
                 fig.add_trace(
                     go.Scatter(
-                        x=exit_indices,
-                        y=[prices[i] for i in exit_indices if i < len(prices)],
+                        x=[e[0] for e in win_long_exits],
+                        y=[e[1] for e in win_long_exits],
                         mode="markers",
                         marker_symbol="triangle-down",
-                        marker=dict(color="red", size=10),
-                        name="Exit",
-                        text=[f"Exit {i+1}" for i in range(len(exit_indices))],
-                        hovertemplate="<b>%{text}</b><br>Bar: %{x}<br>Price: %{y:.5f}<extra></extra>"
+                        marker=dict(color="green", size=12),
+                        text=[f"Trade {e[2]+1}<br>P&L: ${e[3]:,.0f}" for e in win_long_exits],
+                        hovertemplate="<b>%{text}</b><br>Bar: %{x}<br>Price: %{y:.5f}<extra></extra>",
+                        showlegend=False
+                    ),
+                    row=1, col=1
+                )
+                
+            # Winning short trades (red)
+            if any(e for e in win_exits if e[4] == -1):
+                win_short_exits = [e for e in win_exits if e[4] == -1]
+                fig.add_trace(
+                    go.Scatter(
+                        x=[e[0] for e in win_short_exits],
+                        y=[e[1] for e in win_short_exits],
+                        mode="markers",
+                        marker_symbol="triangle-down",
+                        marker=dict(color="red", size=12),
+                        text=[f"Trade {e[2]+1}<br>P&L: ${e[3]:,.0f}" for e in win_short_exits],
+                        hovertemplate="<b>%{text}</b><br>Bar: %{x}<br>Price: %{y:.5f}<extra></extra>",
+                        showlegend=False
+                    ),
+                    row=1, col=1
+                )
+                
+            # Losing trades (grey)
+            if lose_exits:
+                fig.add_trace(
+                    go.Scatter(
+                        x=[e[0] for e in lose_exits],
+                        y=[e[1] for e in lose_exits],
+                        mode="markers",
+                        marker_symbol="triangle-down",
+                        marker=dict(color="grey", size=12),
+                        text=[f"Trade {e[2]+1}<br>P&L: ${e[3]:,.0f}" for e in lose_exits],
+                        hovertemplate="<b>%{text}</b><br>Bar: %{x}<br>Price: %{y:.5f}<extra></extra>",
+                        showlegend=False
                     ),
                     row=1, col=1
                 )
@@ -1030,13 +1124,35 @@ def train_agent(agent: TradingAgent, env: TradingEnvironment, df_train: pd.DataF
                         fillcolor='rgba(0,0,255,0.1)',
                         hovertemplate="Bar: %{x}<br>Position: %{y:,.0f}<br>Direction: %{text}<extra></extra>",
                         text=['Long' if p['direction'] > 0 else 'Short' if p['direction'] < 0 else 'Flat' 
-                              for p in position_history]
+                              for p in position_history],
+                        showlegend=True
                     ),
                     row=2, col=1
                 )
                 
                 # Add zero line for reference
                 fig.add_hline(y=0, line_dash="dash", line_color="gray", opacity=0.5, row=2, col=1)
+            
+            # Add per-trade P&L bars
+            if trades:
+                pnl_list = [t['pnl_usd'] for t in trades]
+                colors = ['darkgreen' if p > 0 else 'darkred' for p in pnl_list]
+                
+                fig.add_trace(
+                    go.Bar(
+                        x=list(range(len(pnl_list))),
+                        y=pnl_list,
+                        marker_color=colors,
+                        name="Trade P&L",
+                        text=[f"${p:,.0f}" for p in pnl_list],
+                        hovertemplate="Trade #%{x}<br>P&L: %{text}<extra></extra>",
+                        showlegend=True
+                    ),
+                    row=3, col=1
+                )
+                
+                # Add zero line for P&L bars
+                fig.add_hline(y=0, line_dash="solid", line_color="black", opacity=0.3, row=3, col=1)
             
             # Add cumulative P&L from equity curve
             if len(env.equity_curve) > 0:
@@ -1050,26 +1166,58 @@ def train_agent(agent: TradingAgent, env: TradingEnvironment, df_train: pd.DataF
                         line=dict(color='darkgreen' if cum_pnl[-1] > 0 else 'darkred', width=2),
                         fill='tozeroy',
                         fillcolor='rgba(0,128,0,0.1)' if cum_pnl[-1] > 0 else 'rgba(128,0,0,0.1)',
-                        hovertemplate="Bar: %{x}<br>P&L: $%{y:,.0f}<extra></extra>"
+                        hovertemplate="Bar: %{x}<br>P&L: $%{y:,.0f}<extra></extra>",
+                        showlegend=True
                     ),
-                    row=3, col=1
+                    row=4, col=1
+                )
+                
+                # Add cumulative trade count
+                trade_count = []
+                count = 0
+                for i in range(len(cum_pnl)):
+                    # Count trades that have closed by this bar
+                    count = sum(1 for t in trades if (t['entry_index'] - start_idx + t['holding_time']) <= i)
+                    trade_count.append(count)
+                
+                # Add secondary y-axis for trade count
+                fig.add_trace(
+                    go.Scatter(
+                        x=list(range(len(trade_count))),
+                        y=trade_count,
+                        mode="lines",
+                        name="Trade Count",
+                        line=dict(color='purple', width=1, dash='dot'),
+                        yaxis='y2',
+                        hovertemplate="Bar: %{x}<br>Trades: %{y}<extra></extra>",
+                        showlegend=True
+                    ),
+                    row=4, col=1
                 )
             
             # Update layout
             fig.update_layout(
-                height=900,  # Increased height for 3 subplots
+                height=1000,  # Increased height for 4 subplots
                 width=1200,
                 title_text=f"Episode {episode+1}: P&L ${final_profit_usd:,.0f} ({final_profit_pct:.1f}%) | Sharpe: {sharpe:.2f} | Trades: {len(trades)}",
                 showlegend=True,
                 hovermode='x unified',
-                template='plotly_white'
+                template='plotly_white',
+                # Configure secondary y-axis for trade count
+                yaxis2=dict(
+                    title="Trade Count",
+                    overlaying='y',
+                    side='right',
+                    showgrid=False
+                )
             )
             
             # Update axes
-            fig.update_xaxes(title_text="Time (bars)", row=3, col=1)
+            fig.update_xaxes(title_text="Time (bars)", row=4, col=1)
             fig.update_yaxes(title_text="Price", row=1, col=1)
             fig.update_yaxes(title_text="Position Size", row=2, col=1)
-            fig.update_yaxes(title_text="P&L (USD)", row=3, col=1)
+            fig.update_yaxes(title_text="Trade P&L ($)", row=3, col=1)
+            fig.update_yaxes(title_text="Cumulative P&L ($)", row=4, col=1)
             
             # Save HTML asynchronously
             executor.submit(async_save_html, fig, f'plots/episode_{episode+1:03d}.html')

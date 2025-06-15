@@ -119,10 +119,13 @@ python rl_audusd_advanced_trading_pytorch_v2.py
    
 2. **Interactive Episode Charts**: HTML visualizations (every 5th episode)
    - `plots/episode_*.html`
-   - Three-panel layout: Price with trades + Position size/direction + Cumulative P&L
-   - Full interactivity: zoom, pan, hover tooltips
-   - Entry markers (green ▲) and exit markers (red ▼)
-   - Position visualization showing exact 1M unit exposure
+   - Four-panel layout: 
+     - Price with color-coded trades (green=winning longs, red=winning shorts, grey=losses)
+     - Position size/direction (1M units)
+     - Per-trade P&L bars
+     - Cumulative P&L with trade count
+   - Full interactivity: zoom, pan, hover tooltips with P&L values
+   - Smart color coding shows trade quality at a glance
    
 3. **Training Metrics**: Console output with episode performance
 
