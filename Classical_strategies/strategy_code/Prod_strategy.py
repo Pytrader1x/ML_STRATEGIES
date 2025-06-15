@@ -419,9 +419,10 @@ class OptimizedStopLossCalculator:
             vol_adj = self.get_volatility_adjustment(atr, row['IC_ATR_MA'])
             sl_distance *= vol_adj
         
-        # Apply maximum pip limit
+        # Apply minimum and maximum pip limits
+        min_sl_distance = 5.0 * FOREX_PIP_SIZE  # Minimum 5 pips
         max_sl_distance = self.config.sl_max_pips * FOREX_PIP_SIZE
-        sl_distance = min(sl_distance, max_sl_distance)
+        sl_distance = max(min(sl_distance, max_sl_distance), min_sl_distance)
         
         # Calculate stop loss levels
         if direction == TradeDirection.LONG:
@@ -445,7 +446,8 @@ class OptimizedStopLossCalculator:
                 mb_stop = mb_high + 0.00005  # 0.5 pip buffer
                 # Also apply max pip limit to MB stop
                 mb_stop = min(mb_stop, entry_price + max_sl_distance)
-                stop_loss = min(atr_stop, mb_stop)
+                # For SHORT positions, we want the stop ABOVE entry, so take the HIGHER value
+                stop_loss = max(atr_stop, mb_stop)
             else:
                 stop_loss = atr_stop
         
@@ -1330,15 +1332,39 @@ class OptimizedProdStrategy:
                     print(f"  ⚠️  WARNING: TP{tp_index+1} already hit, skipping")
                 return None
                 
-            # Determine exit size based on exit count
-            if trade.exit_count == 2:  # Third exit - close all remaining
-                exit_size = trade.remaining_size
-                if self.config.debug_decisions:
-                    print(f"  🔥 FINAL EXIT: Closing remaining {exit_size:.2f}M at TP{tp_index+1}")
-            else:  # First or second exit
-                # Exit 1/3 of ORIGINAL position, but not more than remaining
-                desired_exit = trade.position_size / 3.0
-                exit_size = min(desired_exit, trade.remaining_size)
+            # Determine exit size based on TP level and remaining position
+            total_tps = len(trade.take_profits)
+            current_tp_level = tp_index + 1  # TP1 = 1, TP2 = 2, TP3 = 3
+            
+            # Calculate exit percentage based on TP strategy
+            if total_tps == 1:
+                # Only 1 TP: exit 100% at TP1
+                exit_percent = 1.0
+            elif total_tps == 2:
+                # 2 TPs: TP1 = 50%, TP2 = 100%
+                if current_tp_level == 1:
+                    exit_percent = 0.5
+                else:  # TP2
+                    exit_percent = 1.0
+            else:  # 3 or more TPs
+                # 3 TPs: TP1 = 50%, TP2 = 50% of remaining, TP3 = 100%
+                if current_tp_level == 1:
+                    exit_percent = 0.5
+                elif current_tp_level == 2:
+                    exit_percent = 0.5
+                else:  # TP3 or higher
+                    exit_percent = 1.0
+            
+            # Calculate actual exit size from REMAINING position
+            exit_size = trade.remaining_size * exit_percent
+            
+            if self.config.debug_decisions:
+                print(f"  📊 TP EXIT CALCULATION:")
+                print(f"     Total TPs: {total_tps}")
+                print(f"     Current TP: TP{current_tp_level}")
+                print(f"     Exit Percent: {exit_percent*100:.0f}% of remaining")
+                print(f"     Remaining Before: {trade.remaining_size/self.config.min_lot_size:.2f}M")
+                print(f"     Exit Size: {exit_size/self.config.min_lot_size:.2f}M")
                 
             # Safety check
             if exit_size <= 0:
@@ -1592,6 +1618,8 @@ class OptimizedProdStrategy:
             'pure_sl': 0, 'partial_then_sl': 0, 'pure_tp': 0, 
             'tp_then_other': 0, 'other': 0
         }
+        # Partial profit statistics
+        pp_stats = {'pp_trades': 0, 'pp_percentage': 0.0}
         
         breakeven_threshold = 50  # $50 threshold for breakeven
         
@@ -1599,6 +1627,14 @@ class OptimizedProdStrategy:
             # Count exit reasons
             reason = trade.exit_reason.value if trade.exit_reason else 'unknown'
             exit_reasons[reason] = exit_reasons.get(reason, 0) + 1
+            
+            # Count trades with partial profit exits (tp_level=0)
+            has_pp_exit = any(
+                hasattr(pe, 'tp_level') and pe.tp_level == 0 
+                for pe in trade.partial_exits
+            )
+            if has_pp_exit:
+                pp_stats['pp_trades'] += 1
             
             # Count TP hits
             if trade.tp_hits >= 1:
@@ -1636,6 +1672,10 @@ class OptimizedProdStrategy:
             else:
                 exit_pattern_stats['other'] += 1
         
+        # Calculate PP percentage
+        if len(self.trades) > 0:
+            pp_stats['pp_percentage'] = (pp_stats['pp_trades'] / len(self.trades)) * 100
+        
         return {
             'total_trades': len(self.trades),
             'winning_trades': len(winning_trades),
@@ -1652,6 +1692,7 @@ class OptimizedProdStrategy:
             'tp_hit_stats': tp_hit_stats,
             'sl_outcome_stats': sl_outcome_stats,
             'exit_pattern_stats': exit_pattern_stats,
+            'pp_stats': pp_stats,
             'final_capital': self.current_capital,
             'trades': self.trades,
             'equity_curve': self.equity_curve,
@@ -1676,6 +1717,7 @@ class OptimizedProdStrategy:
             'tp_hit_stats': {'tp1_hits': 0, 'tp2_hits': 0, 'tp3_hits': 0, 'partial_exits': 0},
             'sl_outcome_stats': {'sl_loss': 0, 'sl_breakeven': 0, 'sl_profit': 0, 'sl_total': 0},
             'exit_pattern_stats': {'pure_sl': 0, 'partial_then_sl': 0, 'pure_tp': 0, 'tp_then_other': 0, 'other': 0},
+            'pp_stats': {'pp_trades': 0, 'pp_percentage': 0.0},
             'final_capital': self.current_capital,
             'trades': [],
             'equity_curve': self.equity_curve,
