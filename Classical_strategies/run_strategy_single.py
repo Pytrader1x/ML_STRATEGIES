@@ -73,7 +73,7 @@ def create_ultra_tight_risk_strategy():
         signal_flip_min_profit_pips=5.0,
         signal_flip_min_time_hours=1.0,
         signal_flip_partial_exit_percent=1.0,
-        partial_profit_before_sl=True,
+        partial_profit_before_sl=False,
         partial_profit_sl_distance_ratio=0.5,
         partial_profit_size_percent=0.5,
         intelligent_sizing=False,

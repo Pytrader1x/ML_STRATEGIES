@@ -829,15 +829,16 @@ class ProductionPlotter:
         else:
             exit_pips = (entry_price - exit_price) * 10000
         
-        # Get final P&L and position size if available
-        final_pnl = trade_dict.get('pnl', None)
+        # Get total trade P&L and calculate individual exit P&L
+        total_trade_pnl = trade_dict.get('pnl', None)
+        final_exit_time = trade_dict.get('exit_time')
         
         # Calculate remaining position size for final exit
         position_size = trade_dict.get('position_size', 1000000) / 1000000
         if hasattr(trade_dict.get('position_size'), 'value'):
             position_size = trade_dict['position_size'].value / 1000000
             
-        # Get partial exits to calculate remaining size
+        # Get partial exits to calculate remaining size and partial P&L sum
         partial_exits = trade_dict.get('partial_exits', [])
         remaining_size = position_size
         partial_pnl_sum = 0
@@ -848,41 +849,64 @@ class ProductionPlotter:
             pe_pnl = pe.pnl if hasattr(pe, 'pnl') else pe.get('pnl', 0)
             partial_pnl_sum += pe_pnl
             
-        # For TSL/final exits, calculate P&L for remaining position if not provided
-        if final_pnl is None and remaining_size > 0:
+        # For final exits, try to get the individual P&L from the trade's final exit
+        # If this is a TP final exit, find the corresponding partial exit for accurate P&L
+        individual_exit_pnl = 0
+        final_exit_size = remaining_size  # Store original remaining size before it gets set to 0
+        
+        if 'take_profit' in str(exit_reason) and final_exit_time:
+            # This is a TP final exit - find the corresponding partial exit
+            for pe in partial_exits:
+                if (hasattr(pe, 'time') and pe.time == final_exit_time and
+                    hasattr(pe, 'pnl') and hasattr(pe, 'size')):
+                    individual_exit_pnl = pe.pnl
+                    final_exit_size = pe.size / 1000000  # Convert to millions
+                    break
+        
+        # Fallback calculation if we didn't find the partial exit data
+        if individual_exit_pnl == 0 and final_exit_size > 0:
             # Calculate P&L for remaining position
-            # remaining_size is in millions, so multiply by 100 (pip value per million)
             if direction == 'long':
                 pip_change = (exit_price - entry_price) * 10000  # Convert to pips
-                remaining_pnl = pip_change * remaining_size * 100  # size in M * $100/pip/M
+                individual_exit_pnl = pip_change * final_exit_size * 100  # size in M * $100/pip/M
             else:
                 pip_change = (entry_price - exit_price) * 10000  # Convert to pips
-                remaining_pnl = pip_change * remaining_size * 100  # size in M * $100/pip/M
-            final_pnl = partial_pnl_sum + remaining_pnl
+                individual_exit_pnl = pip_change * final_exit_size * 100  # size in M * $100/pip/M
+        
+        # If total P&L not provided, calculate it
+        if total_trade_pnl is None:
+            total_trade_pnl = partial_pnl_sum + individual_exit_pnl
         
         pip_color = '#43A047' if exit_pips > 0 else '#E53935'
         
-        # Format text with exit type, pips, P&L, and remaining size in compact format
-        remaining_size_m = remaining_size / 1000000
+        # Format text with exit type, pips, individual P&L, total P&L, and exit size
+        exit_size_m = final_exit_size
         
-        # Format P&L compactly
-        if final_pnl is not None and abs(final_pnl) >= 1000:
-            pnl_text = f"${final_pnl/1000:.1f}k"
-        elif final_pnl is not None:
-            pnl_text = f"${final_pnl:.0f}"
+        # Format individual exit P&L compactly
+        if abs(individual_exit_pnl) >= 1000:
+            individual_pnl_text = f"${individual_exit_pnl/1000:.1f}k"
         else:
-            pnl_text = "$0"
+            individual_pnl_text = f"${individual_exit_pnl:.0f}"
         
+        # Format total trade P&L compactly
+        if total_trade_pnl is not None and abs(total_trade_pnl) >= 1000:
+            total_pnl_text = f"${total_trade_pnl/1000:.1f}k"
+        elif total_trade_pnl is not None:
+            total_pnl_text = f"${total_trade_pnl:.0f}"
+        else:
+            total_pnl_text = "$0"
+        
+        # Create text with format: "TP3|+31.3p|$300|Total $1300|0.25M"
         if exit_reason == 'trailing_stop':
-            text = f'TSL|{exit_pips:+.1f}p|{pnl_text}|{remaining_size_m:.2f}M'
+            text = f'TSL|{exit_pips:+.1f}p|{individual_pnl_text}|Total {total_pnl_text}|{exit_size_m:.2f}M'
         elif exit_reason == 'stop_loss':
-            text = f'SL|{exit_pips:+.1f}p|{pnl_text}|{remaining_size_m:.2f}M'
+            text = f'SL|{exit_pips:+.1f}p|{individual_pnl_text}|Total {total_pnl_text}|{exit_size_m:.2f}M'
         elif 'take_profit' in str(exit_reason):
             # Extract TP number
             tp_num = exit_reason.split('_')[-1] if '_' in exit_reason else '3'
-            text = f'TP{tp_num}|{exit_pips:+.1f}p|{pnl_text}|{remaining_size_m:.2f}M'
+            text = f'TP{tp_num}|{exit_pips:+.1f}p|{individual_pnl_text}|Total {total_pnl_text}|{exit_size_m:.2f}M'
         else:
-            text = f'{exit_pips:+.1f}p|{pnl_text}|{remaining_size_m:.2f}M'
+            text = f'{exit_pips:+.1f}p|{individual_pnl_text}|Total {total_pnl_text}|{exit_size_m:.2f}M'
             
         ax.text(x_pos[exit_idx] + 0.5, exit_price, 
                text, 
@@ -931,35 +955,62 @@ class ProductionPlotter:
         if not partial_exits:
             return
             
-        # Only plot TP exits (not partial profit exits) to reduce clutter
-        tp_exits = [p for p in partial_exits 
-                    if (hasattr(p, 'tp_level') and p.tp_level > 0) or 
-                       (isinstance(p, dict) and p.get('tp_level', 0) > 0)]
+        # Plot all partial exits (including partial profit and TP exits)
+        # BUT exclude the final exit to avoid duplicates
+        final_exit_time = trade_dict.get('exit_time')
         
-        if not tp_exits:
-            return
-            
-        tp_exit_colors = ['#90EE90', '#3CB371', '#228B22']
+        tp_exit_colors = ['#90EE90', '#66CC66', '#228B22']  # Light Green, Medium Green, Forest Green
         
-        # Plot only significant TP exits (TP1 and TP3, skip TP2 for clarity)
-        for partial_exit in tp_exits:
+        # Track positions to avoid overlapping markers
+        exit_positions = {}  # {time_idx: [(price, tp_level), ...]}
+        
+        for i, partial_exit in enumerate(partial_exits):
             tp_level = partial_exit.tp_level if hasattr(partial_exit, 'tp_level') else partial_exit.get('tp_level', 0)
-            
-            # Skip TP2 to reduce clutter (only show TP1 and TP3)
-            if tp_level == 2:
-                continue
-                
             partial_time = partial_exit.time if hasattr(partial_exit, 'time') else partial_exit['time']
+            
+            # Skip if this partial exit is the same as the final exit (to avoid duplicates)
+            # BUT only skip if it's the FINAL TP level, not intermediate ones
+            if final_exit_time and partial_time == final_exit_time:
+                # Check if this is the final TP exit by comparing to exit reason
+                final_exit_reason = trade_dict.get('exit_reason', '')
+                if ('take_profit' in str(final_exit_reason) and 
+                    hasattr(final_exit_reason, 'value')):
+                    # Extract final TP number (e.g., take_profit_3 -> 3)
+                    final_tp_num = int(final_exit_reason.value.split('_')[-1])
+                    # Only skip if this partial exit matches the final TP number
+                    if tp_level == final_tp_num:
+                        continue
+                else:
+                    # For non-TP final exits, skip all partial exits at same time
+                    continue
             partial_price = partial_exit.price if hasattr(partial_exit, 'price') else partial_exit['price']
             partial_pnl = partial_exit.pnl if hasattr(partial_exit, 'pnl') else partial_exit.get('pnl', None)
             
             partial_idx = self._find_time_index(df, partial_time)
             
             if partial_idx is not None:
-                exit_color = tp_exit_colors[min(tp_level - 1, 2)]
+                # Check if we already have exits at this time index
+                if partial_idx not in exit_positions:
+                    exit_positions[partial_idx] = []
+                
+                # Calculate vertical offset to avoid overlap
+                num_exits_at_time = len(exit_positions[partial_idx])
+                price_offset = num_exits_at_time * 0.0002  # Small offset for each exit
+                
+                exit_positions[partial_idx].append((partial_price, tp_level))
+                
+                # Determine color based on exit type
+                if tp_level == 0:
+                    # Partial profit exit (not a TP exit)
+                    exit_color = '#FFD700'  # Gold color for partial profit
+                else:
+                    # TP exit
+                    exit_color = tp_exit_colors[min(tp_level - 1, 2)]
                 
                 # Use smaller markers for partial exits
-                ax.scatter(x_pos[partial_idx], partial_price, 
+                # Apply offset to avoid overlapping markers when multiple exits at same time
+                marker_y_position = partial_price + price_offset if direction == 'long' else partial_price - price_offset
+                ax.scatter(x_pos[partial_idx], marker_y_position, 
                           marker='o', s=60, color=exit_color, 
                           edgecolor='white', linewidth=1, zorder=5)
                 
@@ -982,12 +1033,17 @@ class ProductionPlotter:
                 else:
                     pnl_text = "$0"
                 
-                # Enhanced text - show TP level, pips, P&L, and exit size
+                # Enhanced text - show exit type, pips, P&L, and exit size
                 # Show size with 2 decimals for accuracy (e.g., 0.33M instead of 0.3M)
-                text = f'TP{tp_level}|+{partial_pips:.1f}p|{pnl_text}|{partial_size_m:.2f}M'
+                if tp_level == 0:
+                    text = f'PP|+{partial_pips:.1f}p|{pnl_text}|{partial_size_m:.2f}M'  # PP = Partial Profit
+                else:
+                    text = f'TP{tp_level}|+{partial_pips:.1f}p|{pnl_text}|{partial_size_m:.2f}M'
                 
                 # Add compact annotation with enhanced information
-                ax.text(x_pos[partial_idx] + 0.3, partial_price, 
+                # Apply vertical offset to text as well to avoid overlap
+                text_y_position = partial_price + price_offset if direction == 'long' else partial_price - price_offset
+                ax.text(x_pos[partial_idx] + 0.3, text_y_position, 
                        text, 
                        fontsize=5.5, color=exit_color, 
                        va='center', ha='left', 
@@ -1013,6 +1069,7 @@ class ProductionPlotter:
         # Analyze trades to determine what exit types are actually present
         exit_types_present = set()
         partial_exit_levels = set()
+        has_partial_profit = False
         
         if trades:
             for trade in trades:
@@ -1030,6 +1087,8 @@ class ProductionPlotter:
                     tp_level = partial_exit.tp_level if hasattr(partial_exit, 'tp_level') else partial_exit.get('tp_level', 0)
                     if tp_level > 0:
                         partial_exit_levels.add(tp_level)
+                    elif tp_level == 0:
+                        has_partial_profit = True
         
         # SECTION 1: Entry markers
         if trades:
@@ -1042,7 +1101,14 @@ class ProductionPlotter:
                        markersize=12, label='▼ Short Entry (Red)', linestyle='None', markeredgecolor='white', markeredgewidth=1)
             )
             
-            # SECTION 2: Partial exits (TP levels)
+            # SECTION 2: Partial exits (PP and TP levels)
+            if has_partial_profit:
+                legend_elements.append(
+                    Line2D([0], [0], marker='o', color='w', markerfacecolor='#FFD700', 
+                           markersize=10, label='● Partial Profit', linestyle='None', 
+                           markeredgecolor='white', markeredgewidth=1)
+                )
+            
             if partial_exit_levels:
                 tp_colors = ['#90EE90', '#3CB371', '#228B22']
                 for tp_level in sorted(partial_exit_levels):
@@ -1120,6 +1186,27 @@ class ProductionPlotter:
             
             # Format bottom axis
             bottom_ax.tick_params(colors=self.config.COLORS['text'])
+            
+            # Add custom formatter for cursor display on all axes
+            for ax in axes:
+                def format_coord(x, y):
+                    """Custom formatter for cursor position"""
+                    # Handle x coordinate (time)
+                    if x >= 0 and x < len(df):
+                        idx = int(round(x))
+                        date_str = df.index[idx].strftime('%Y-%m-%d %H:%M')
+                    else:
+                        date_str = ''
+                    
+                    # Format y coordinate based on the axis
+                    if ax == axes[0]:  # Price axis
+                        y_str = f'{y:.4f}'
+                    else:  # Other axes (P&L, position size)
+                        y_str = f'{y:,.2f}'
+                    
+                    return f'({date_str}, {y_str})' if date_str else f'(x={x:.0f}, y={y_str})'
+                
+                ax.format_coord = format_coord
     
     def _style_spines(self, axes):
         """Style subplot spines"""
