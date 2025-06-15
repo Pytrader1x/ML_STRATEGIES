@@ -269,6 +269,7 @@ class OptimizedStrategyConfig:
     
     # Stop loss configuration
     sl_atr_multiplier: float = 2.0
+    sl_min_pips: float = 5.0   # Minimum stop loss in pips
     sl_max_pips: float = 45.0  # Maximum stop loss in pips
     trailing_atr_multiplier: float = 1.2
     tsl_activation_pips: float = 15  # TSL activates after 15 pips in profit
@@ -316,7 +317,7 @@ class OptimizedStrategyConfig:
     use_daily_sharpe: bool = True  # If True, resample to daily for Sharpe calculation; if False, use bar-level data
     
     # Intrabar stop loss
-    intrabar_stop_on_touch: bool = False  # If True, trigger SL if any bar touches it (not just close)
+    intrabar_stop_on_touch: bool = True  # If True, trigger SL if any bar touches it (not just close)
 
 
 # ============================================================================
@@ -423,7 +424,7 @@ class OptimizedStopLossCalculator:
             sl_distance *= vol_adj
         
         # Apply minimum and maximum pip limits
-        min_sl_distance = 5.0 * FOREX_PIP_SIZE  # Minimum 5 pips
+        min_sl_distance = self.config.sl_min_pips * FOREX_PIP_SIZE
         max_sl_distance = self.config.sl_max_pips * FOREX_PIP_SIZE
         sl_distance = max(min(sl_distance, max_sl_distance), min_sl_distance)
         
@@ -694,6 +695,7 @@ class OptimizedProdStrategy:
         # Stop Loss
         print(f"\n🛑 STOP LOSS:")
         print(f"   ATR Multiplier: {self.config.sl_atr_multiplier}x")
+        print(f"   Minimum: {self.config.sl_min_pips} pips")
         print(f"   Maximum: {self.config.sl_max_pips} pips")
         print(f"   Volatility Adj: {'ON' if self.config.sl_volatility_adjustment else 'OFF'}")
         print(f"   Range Market: {self.config.sl_range_market_multiplier}x multiplier")

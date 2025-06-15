@@ -57,6 +57,7 @@ def create_ultra_tight_risk_strategy():
     strategy_config = OptimizedStrategyConfig(
         initial_capital=1_000_000,
         risk_per_trade=0.002,  # 0.2% risk per trade
+        sl_min_pips=5.0,
         sl_max_pips=10.0,
         sl_atr_multiplier=1.0,
         tp_atr_multipliers=(0.2, 0.3, 0.5),
@@ -83,7 +84,8 @@ def create_ultra_tight_risk_strategy():
         realistic_costs=True,
         verbose=False,
         debug_decisions=True,
-        use_daily_sharpe=True
+        use_daily_sharpe=True,
+        intrabar_stop_on_touch=True
     )
     return OptimizedProdStrategy(strategy_config)
 

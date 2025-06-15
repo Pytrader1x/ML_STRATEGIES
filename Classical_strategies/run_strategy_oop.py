@@ -92,6 +92,7 @@ class StrategyFactory:
         strategy_config = OptimizedStrategyConfig(
             initial_capital=1_000_000,
             risk_per_trade=0.002,  # 0.2% risk per trade
+            sl_min_pips=5.0,
             sl_max_pips=10.0,
             sl_atr_multiplier=1.0,
             tp_atr_multipliers=(0.2, 0.3, 0.5),
@@ -108,7 +109,7 @@ class StrategyFactory:
             signal_flip_min_profit_pips=5.0,
             signal_flip_min_time_hours=1.0,
             signal_flip_partial_exit_percent=1.0,
-            partial_profit_before_sl=True,
+            partial_profit_before_sl=False,
             partial_profit_sl_distance_ratio=0.5,
             partial_profit_size_percent=0.5,
             intelligent_sizing=False,
@@ -128,6 +129,7 @@ class StrategyFactory:
         strategy_config = OptimizedStrategyConfig(
             initial_capital=1_000_000,
             risk_per_trade=0.001,  # 0.1% risk per trade
+            sl_min_pips=3.0,
             sl_max_pips=5.0,
             sl_atr_multiplier=0.5,
             tp_atr_multipliers=(0.1, 0.2, 0.3),
@@ -144,7 +146,7 @@ class StrategyFactory:
             signal_flip_min_profit_pips=0.0,
             signal_flip_min_time_hours=0.0,
             signal_flip_partial_exit_percent=1.0,
-            partial_profit_before_sl=True,
+            partial_profit_before_sl=False,
             partial_profit_sl_distance_ratio=0.3,
             partial_profit_size_percent=0.7,
             intelligent_sizing=False,
