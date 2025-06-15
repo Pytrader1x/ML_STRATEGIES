@@ -13,9 +13,8 @@ import torch.nn.functional as F
 import random
 import numpy as np
 import pandas as pd
-import matplotlib
-matplotlib.use('Agg')  # Non-interactive backend for speed
-import matplotlib.pyplot as plt
+import plotly.graph_objects as go
+from plotly.subplots import make_subplots
 from collections import deque, namedtuple
 from tqdm import tqdm
 from typing import List, Tuple, Dict, Optional
@@ -91,7 +90,7 @@ class Config:
     GAMMA = 0.995  # Higher for long-term
     EPSILON = 1.0
     EPSILON_MIN = 0.01
-    EPSILON_DECAY = 0.999995  # Slower per-step decay (was 0.9995)
+    EPSILON_DECAY = 0.999985  # Slower per-step decay (was 0.9995)
     
     # Trading Parameters - USD based with 1M lots
     INITIAL_BALANCE = 1_000_000  # Start with USD 1M
@@ -784,22 +783,15 @@ def train_agent(agent: TradingAgent, env: TradingEnvironment, df_train: pd.DataF
     best_sharpe = -float('inf')
     no_improvement_count = 0
     
-    # Setup efficient plotting
-    fig, ax = plt.subplots(figsize=(12, 4))
-    line_price, = ax.plot([], [], lw=1, label='Close', color='blue')
-    entries_scatter = ax.scatter([], [], marker='^', color='g', s=50, label='Entry', zorder=5)
-    exits_scatter = ax.scatter([], [], marker='v', color='r', s=50, label='Exit', zorder=5)
-    ax.legend(loc='upper left')
-    ax.set_xlabel('Time')
-    ax.set_ylabel('Price')
+    # Setup plotting directory
     os.makedirs('plots', exist_ok=True)
     
-    # Thread pool for async saving
+    # Thread pool for async HTML saving
     executor = ThreadPoolExecutor(max_workers=2)
     
-    def async_save(fig, path):
-        """Save figure asynchronously"""
-        fig.savefig(path, dpi=80, bbox_inches='tight')    
+    def async_save_html(fig, path):
+        """Save Plotly figure as HTML asynchronously"""
+        fig.write_html(path)    
     for episode in range(episodes):
         # Reset environment
         env.reset()
@@ -929,52 +921,114 @@ def train_agent(agent: TradingAgent, env: TradingEnvironment, df_train: pd.DataF
         # Print current epsilon (decay happens per-step in replay)
         print(f"  Current Epsilon: {agent.epsilon:.4f}")
         
-        # Plot episode trades efficiently
-        if len(trades) > 0:
+        # Create interactive Plotly chart for episode
+        if len(trades) > 0 and episode % 5 == 0:  # Save every 5th episode to avoid too many files
             # Get price series for this window
             prices = df_train['Close'].iloc[start_idx:end_idx].values
             
-            # Build entry/exit indices relative to window
+            # Build entry/exit data
             entry_indices = []
             exit_indices = []
-            entry_prices = []
-            exit_prices = []
             
             for trade in trades:
-                # Need to track exit index when position closes
                 entry_idx = trade.get('entry_index', 0) - start_idx
-                # Calculate exit index from entry + holding time
                 exit_idx = entry_idx + trade['holding_time']
                 
                 if 0 <= entry_idx < len(prices):
                     entry_indices.append(entry_idx)
-                    entry_prices.append(prices[entry_idx])
                 if 0 <= exit_idx < len(prices):
                     exit_indices.append(exit_idx)
-                    exit_prices.append(prices[exit_idx])
             
-            # Update plot data
-            line_price.set_data(range(len(prices)), prices)
-            ax.set_xlim(0, len(prices))
-            ax.set_ylim(prices.min() * 0.995, prices.max() * 1.005)
+            # Create 2-row subplot: price/trades on top, cumulative PnL below
+            fig = make_subplots(
+                rows=2, cols=1,
+                shared_xaxes=True,
+                row_heights=[0.7, 0.3],
+                vertical_spacing=0.05,
+                subplot_titles=(
+                    f"Episode {episode+1} - Price & Trades",
+                    "Cumulative P&L (USD)"
+                )
+            )
             
-            # Update scatter points
+            # Add price line
+            fig.add_trace(
+                go.Scatter(
+                    x=list(range(len(prices))),
+                    y=prices,
+                    mode="lines",
+                    name="AUDUSD Price",
+                    line=dict(color='blue', width=1)
+                ),
+                row=1, col=1
+            )
+            
+            # Add entry markers
             if entry_indices:
-                entries_scatter.set_offsets(np.c_[entry_indices, entry_prices])
-            else:
-                entries_scatter.set_offsets(np.empty((0, 2)))
-                
+                fig.add_trace(
+                    go.Scatter(
+                        x=entry_indices,
+                        y=[prices[i] for i in entry_indices if i < len(prices)],
+                        mode="markers",
+                        marker_symbol="triangle-up",
+                        marker=dict(color="green", size=10),
+                        name="Entry",
+                        text=[f"Entry {i+1}" for i in range(len(entry_indices))],
+                        hovertemplate="<b>%{text}</b><br>Bar: %{x}<br>Price: %{y:.5f}<extra></extra>"
+                    ),
+                    row=1, col=1
+                )
+            
+            # Add exit markers
             if exit_indices:
-                exits_scatter.set_offsets(np.c_[exit_indices, exit_prices])
-            else:
-                exits_scatter.set_offsets(np.empty((0, 2)))
+                fig.add_trace(
+                    go.Scatter(
+                        x=exit_indices,
+                        y=[prices[i] for i in exit_indices if i < len(prices)],
+                        mode="markers",
+                        marker_symbol="triangle-down",
+                        marker=dict(color="red", size=10),
+                        name="Exit",
+                        text=[f"Exit {i+1}" for i in range(len(exit_indices))],
+                        hovertemplate="<b>%{text}</b><br>Bar: %{x}<br>Price: %{y:.5f}<extra></extra>"
+                    ),
+                    row=1, col=1
+                )
             
-            # Update title
-            ax.set_title(f'Episode {episode+1} - Profit: ${final_profit_usd:,.0f} ({final_profit_pct:.1f}%) - Sharpe: {sharpe:.2f}')
+            # Add cumulative P&L from equity curve
+            if len(env.equity_curve) > 0:
+                cum_pnl = np.array(env.equity_curve) - env.equity_curve[0]
+                fig.add_trace(
+                    go.Scatter(
+                        x=list(range(len(cum_pnl))),
+                        y=cum_pnl,
+                        mode="lines",
+                        name="Cumulative P&L",
+                        line=dict(color='darkgreen' if cum_pnl[-1] > 0 else 'darkred', width=2),
+                        fill='tozeroy',
+                        fillcolor='rgba(0,128,0,0.1)' if cum_pnl[-1] > 0 else 'rgba(128,0,0,0.1)',
+                        hovertemplate="Bar: %{x}<br>P&L: $%{y:,.0f}<extra></extra>"
+                    ),
+                    row=2, col=1
+                )
             
-            # Draw and save asynchronously
-            fig.canvas.draw()
-            executor.submit(async_save, fig, f'plots/episode_{episode+1:03d}.png')
+            # Update layout
+            fig.update_layout(
+                height=700,
+                width=1200,
+                title_text=f"Episode {episode+1}: P&L ${final_profit_usd:,.0f} ({final_profit_pct:.1f}%) | Sharpe: {sharpe:.2f} | Trades: {len(trades)}",
+                showlegend=True,
+                hovermode='x unified',
+                template='plotly_white'
+            )
+            
+            # Update axes
+            fig.update_xaxes(title_text="Time (bars)", row=2, col=1)
+            fig.update_yaxes(title_text="Price", row=1, col=1)
+            fig.update_yaxes(title_text="P&L (USD)", row=2, col=1)
+            
+            # Save HTML asynchronously
+            executor.submit(async_save_html, fig, f'plots/episode_{episode+1:03d}.html')
         
         if no_improvement_count >= 30:
             print(f"\nEarly stopping: No improvement for 30 episodes")
@@ -982,7 +1036,6 @@ def train_agent(agent: TradingAgent, env: TradingEnvironment, df_train: pd.DataF
     
     # Cleanup
     executor.shutdown(wait=True)
-    plt.close(fig)
     
     return episode_rewards, episode_profits, episode_sharpes
 

@@ -117,9 +117,11 @@ python rl_audusd_advanced_trading_pytorch_v2.py
 1. **Model Checkpoints**: Saved every 10 episodes
    - `dqn_audusd_v2_episode_*.pth`
    
-2. **Episode Plots**: Trade visualization
-   - `plots/episode_*.png`
-   - Shows price with entry (green ^) and exit (red v) markers
+2. **Interactive Episode Charts**: HTML visualizations (every 5th episode)
+   - `plots/episode_*.html`
+   - Two-panel layout: Price with trades + Cumulative P&L
+   - Full interactivity: zoom, pan, hover tooltips
+   - Entry markers (green ▲) and exit markers (red ▼)
    
 3. **Training Metrics**: Console output with episode performance
 
