@@ -90,7 +90,9 @@ class Config:
     GAMMA = 0.995  # Higher for long-term
     EPSILON = 0.9   # Start at 0.9
     EPSILON_MIN = 0.01
-    EPSILON_DECAY = 0.999865  # Per-step decay 10% slower - reach 0.01 by ~33k steps (6-7 episodes) 
+    EPSILON_DECAY = 0.99  # Per-episode decay (moved to end of episode)
+    MIN_HOLDING_BARS = 8  # Increased from 3 to reduce churn
+    COOLDOWN_BARS = 4  # Cooldown after any exit 
     
     # Trading Parameters - USD based with 1M lots
     INITIAL_BALANCE = 1_000_000  # Start with USD 1M
@@ -218,8 +220,13 @@ class DataLoader:
         rsi = 100 - (100 / (1 + rs))
         return rsi
     
-    def prepare_features(self) -> List[str]:
-        """Select and normalize features for the model"""
+    def prepare_features(self, train_df: Optional[pd.DataFrame] = None) -> List[str]:
+        """Select and normalize features for the model
+        
+        Args:
+            train_df: Training dataframe to compute normalization stats from.
+                     If provided, these stats will be stored and used for all normalization.
+        """
         # Core features
         self.feature_cols = [
             # Price action
@@ -234,9 +241,28 @@ class DataLoader:
         
         # Normalize features
         print("\nNormalizing features...")
+        
+        # If train_df provided, compute and store normalization stats
+        if train_df is not None:
+            self.norm_stats = {}
+            for col in self.feature_cols:
+                if col in train_df.columns:
+                    self.norm_stats[col] = {
+                        'mean': train_df[col].mean(),
+                        'std': train_df[col].std() + 1e-8
+                    }
+            print("Computed normalization stats from training data")
+        
+        # Apply normalization using stored stats (no look-ahead bias)
         for col in self.feature_cols:
-            if col in self.df.columns:
-                # Z-score normalization
+            if col in self.df.columns and hasattr(self, 'norm_stats') and col in self.norm_stats:
+                # Use train-only statistics
+                self.df[f'{col}_norm'] = (
+                    (self.df[col] - self.norm_stats[col]['mean']) / 
+                    self.norm_stats[col]['std']
+                )
+            elif col in self.df.columns:
+                # Fallback for backward compatibility
                 self.df[f'{col}_norm'] = (
                     (self.df[col] - self.df[col].rolling(200).mean()) / 
                     (self.df[col].rolling(200).std() + 1e-8)
@@ -246,8 +272,70 @@ class DataLoader:
     
 
 # %% Enhanced DQN Model
+class DuelingDQN_CNN(nn.Module):
+    """Dueling DQN with 1D CNN for feature extraction"""
+    
+    def __init__(self, state_size: int, action_size: int, num_features: int = 18, window_size: int = 50):
+        super(DuelingDQN_CNN, self).__init__()
+        self.num_features = num_features
+        self.window_size = window_size
+        
+        # 1D CNN for temporal feature extraction
+        self.conv = nn.Sequential(
+            nn.Conv1d(num_features, 64, kernel_size=5, padding=2),
+            nn.ReLU(),
+            nn.MaxPool1d(2),
+            nn.Conv1d(64, 128, kernel_size=3, padding=1),
+            nn.ReLU(),
+            nn.BatchNorm1d(128),
+            nn.Dropout(0.2)
+        )
+        
+        # Calculate flattened size after convolutions
+        conv_out_size = window_size // 2  # After one MaxPool1d(2)
+        flat_size = 128 * conv_out_size + 7  # 7 position features
+        
+        # Value stream
+        self.value = nn.Sequential(
+            nn.Linear(flat_size, 128),
+            nn.ReLU(),
+            nn.Dropout(0.2),
+            nn.Linear(128, 1)
+        )
+        
+        # Advantage stream
+        self.advantage = nn.Sequential(
+            nn.Linear(flat_size, 128),
+            nn.ReLU(),
+            nn.Dropout(0.2),
+            nn.Linear(128, action_size)
+        )
+        
+    def forward(self, x):
+        # Split window and position features
+        batch_size = x.shape[0]
+        window_features = x[:, :-7].view(batch_size, self.num_features, self.window_size)
+        pos_features = x[:, -7:]
+        
+        # Apply CNN to window features
+        conv_out = self.conv(window_features)
+        conv_flat = conv_out.flatten(1)
+        
+        # Concatenate with position features
+        combined = torch.cat([conv_flat, pos_features], dim=1)
+        
+        # Compute value and advantage
+        value = self.value(combined)
+        advantage = self.advantage(combined)
+        
+        # Combine streams
+        q_values = value + (advantage - advantage.mean(dim=1, keepdim=True))
+        
+        return q_values
+
+
 class DuelingDQN(nn.Module):
-    """Enhanced Dueling DQN with Noisy Networks"""
+    """Original Dueling DQN (fallback option)"""
     
     def __init__(self, state_size: int, action_size: int):
         super(DuelingDQN, self).__init__()
@@ -315,6 +403,7 @@ class TradingEnvironment:
         self.max_drawdown = 0
         self.peak_balance = Config.INITIAL_BALANCE
         self.equity_curve = [Config.INITIAL_BALANCE]  # Initialize equity curve
+        self.last_exit_bar = -Config.COOLDOWN_BARS  # Track last exit for cooldown
         
     def get_state(self, index: int, window_size: int) -> torch.Tensor:
         """Get enhanced state representation - returns torch.Tensor on device"""
@@ -424,28 +513,33 @@ class TradingEnvironment:
             
         elif action == 1:  # Buy
             if not self.position:
-                # Open long position
-                stop_loss, take_profit = self.calculate_adaptive_sl_tp(
-                    current_price, 1, False
-                )
-                
-                self.position = {
-                    'entry_price': current_price,
-                    'size': Config.POSITION_SIZE,
-                    'direction': 1,
-                    'stop_loss': stop_loss,
-                    'take_profit': take_profit,
-                    'entry_index': index,
-                    'unrealized_pnl': 0,
-                    'holding_time': 0,
-                    'entry_signal_strength': self.df['Composite_Signal'].iloc[index]
-                }
-                
-                info['position_opened'] = 'long'
+                # Check cooldown after exit
+                if self.current_step - self.last_exit_bar < Config.COOLDOWN_BARS:
+                    action = 0  # Convert to Hold during cooldown
+                    info['action_blocked'] = 'cooldown'
+                else:
+                    # Open long position
+                    stop_loss, take_profit = self.calculate_adaptive_sl_tp(
+                        current_price, 1, False
+                    )
+                    
+                    self.position = {
+                        'entry_price': current_price,
+                        'size': Config.POSITION_SIZE,
+                        'direction': 1,
+                        'stop_loss': stop_loss,
+                        'take_profit': take_profit,
+                        'entry_index': index,
+                        'unrealized_pnl': 0,
+                        'holding_time': 0,
+                        'entry_signal_strength': self.df['Composite_Signal'].iloc[index]
+                    }
+                    
+                    info['position_opened'] = 'long'
                     
             elif self.position['direction'] == -1:
                 # P1: Minimum holding bars - prevent instant flip
-                if self.position['holding_time'] <= 3:
+                if self.position['holding_time'] <= Config.MIN_HOLDING_BARS:
                     # BUG FIX: Don't return early - let method continue to update metrics
                     action = 0  # Convert to Hold action
                     info['action_blocked'] = 'min_hold_time'
@@ -475,28 +569,33 @@ class TradingEnvironment:
                     
         elif action == 2:  # Sell
             if not self.position:
-                # Open short position
-                stop_loss, take_profit = self.calculate_adaptive_sl_tp(
-                    current_price, -1, False
-                )
-                
-                self.position = {
-                    'entry_price': current_price,
-                    'size': Config.POSITION_SIZE,
-                    'direction': -1,
-                    'stop_loss': stop_loss,
-                    'take_profit': take_profit,
-                    'entry_index': index,
-                    'unrealized_pnl': 0,
-                    'holding_time': 0,
-                    'entry_signal_strength': self.df['Composite_Signal'].iloc[index]
-                }
-                
-                info['position_opened'] = 'short'
+                # Check cooldown after exit
+                if self.current_step - self.last_exit_bar < Config.COOLDOWN_BARS:
+                    action = 0  # Convert to Hold during cooldown
+                    info['action_blocked'] = 'cooldown'
+                else:
+                    # Open short position
+                    stop_loss, take_profit = self.calculate_adaptive_sl_tp(
+                        current_price, -1, False
+                    )
+                    
+                    self.position = {
+                        'entry_price': current_price,
+                        'size': Config.POSITION_SIZE,
+                        'direction': -1,
+                        'stop_loss': stop_loss,
+                        'take_profit': take_profit,
+                        'entry_index': index,
+                        'unrealized_pnl': 0,
+                        'holding_time': 0,
+                        'entry_signal_strength': self.df['Composite_Signal'].iloc[index]
+                    }
+                    
+                    info['position_opened'] = 'short'
                     
             elif self.position['direction'] == 1:
                 # P1: Minimum holding bars - prevent instant flip
-                if self.position['holding_time'] <= 3:
+                if self.position['holding_time'] <= Config.MIN_HOLDING_BARS:
                     # BUG FIX: Don't return early - let method continue to update metrics
                     action = 0  # Convert to Hold action
                     info['action_blocked'] = 'min_hold_time'
@@ -611,6 +710,7 @@ class TradingEnvironment:
         })
         
         self.position = None
+        self.last_exit_bar = self.current_step  # Record exit time for cooldown
     
     def _update_metrics(self):
         """Update performance metrics"""
@@ -688,9 +788,19 @@ class TradingAgent:
         self.beta = 0.4  # For importance sampling
         self.beta_increment = 0.001
         
-        # Neural networks
-        self.q_network = DuelingDQN(state_size, action_size).to(device)
-        self.target_network = DuelingDQN(state_size, action_size).to(device)
+        # Neural networks - use CNN version
+        self.use_cnn = True  # Flag to enable CNN
+        if self.use_cnn:
+            num_features = len([col for col in ['Close', 'Returns', 'High_Low_Pct', 'Close_Open_Pct',
+                                               'ATR_Pct', 'Close_to_SMA20', 'Close_to_SMA50',
+                                               'RSI', 'NTI_Direction', 'NTI_Confidence', 'NTI_SlopePower',
+                                               'NTI_ReversalRisk', 'MB_Bias', 'IC_Regime', 'IC_Confidence',
+                                               'IC_Signal', 'Trending', 'Composite_Signal'] if True])  # 18 features
+            self.q_network = DuelingDQN_CNN(state_size, action_size, num_features, Config.WINDOW_SIZE).to(device)
+            self.target_network = DuelingDQN_CNN(state_size, action_size, num_features, Config.WINDOW_SIZE).to(device)
+        else:
+            self.q_network = DuelingDQN(state_size, action_size).to(device)
+            self.target_network = DuelingDQN(state_size, action_size).to(device)
         self.update_target_model()
         
         # Optimizer
@@ -799,8 +909,7 @@ class TradingAgent:
         if self.update_counter % Config.UPDATE_TARGET_EVERY == 0:
             self.update_target_model()
         
-        # Epsilon decay per-step (slower rate to reach terminal by episode 5-6)
-        self.epsilon = max(self.epsilon_min, self.epsilon * self.epsilon_decay)
+        # Removed per-step epsilon decay - moved to episode level
         
         # Increment beta
         self.beta = min(1.0, self.beta + self.beta_increment)
@@ -890,7 +999,7 @@ def train_agent(agent: TradingAgent, env: TradingEnvironment, df_train: pd.DataF
             
             # Train on mini-batch
             if len(agent.memory.buffer) > Config.BATCH_SIZE:
-                loss = agent.replay(Config.BATCH_SIZE)
+                _ = agent.replay(Config.BATCH_SIZE)
             
             # Update progress bar with USD profit
             if env.position:
@@ -973,15 +1082,12 @@ def train_agent(agent: TradingAgent, env: TradingEnvironment, df_train: pd.DataF
         else:
             no_improvement_count += 1
         
-        # Print current epsilon (now decaying per-step in replay)
+        # Epsilon decay at end of episode
+        agent.epsilon = max(Config.EPSILON_MIN, agent.epsilon * Config.EPSILON_DECAY)
         print(f"  Current Epsilon: {agent.epsilon:.4f}")
         
-        # Log expected epsilon trajectory
-        if episode == 0:
-            steps_per_episode = window_length
-            for future_ep in [1, 2, 3, 4, 5, 6]:
-                expected_epsilon = Config.EPSILON * (Config.EPSILON_DECAY ** (steps_per_episode * future_ep))
-                print(f"  Expected ε by episode {future_ep}: {expected_epsilon:.4f}")
+        # Anneal beta over episodes
+        agent.beta = min(1.0, 0.4 + (0.6 * episode / episodes))  # Linear from 0.4 to 1.0
         
         # Create interactive Plotly chart for episode
         if len(trades) > 0 and episode % 1 == 0:  # Save every 1th episode to avoid too many files
@@ -993,8 +1099,6 @@ def train_agent(agent: TradingAgent, env: TradingEnvironment, df_train: pd.DataF
             win_exits = []
             lose_entries = []
             lose_exits = []
-            entry_pnl = []
-            exit_pnl = []
             
             for i, trade in enumerate(trades):
                 entry_idx = trade.get('entry_index', 0) - start_idx
@@ -1194,14 +1298,16 @@ def main(fast_mode: bool = False):
     # Load and prepare data
     df = loader.load_data()
     df = loader.add_technical_indicators()
-    feature_cols = loader.prepare_features()
     
-    print(f"\nUsing {len(feature_cols)} features")
-    
-    # Split data
+    # Split data BEFORE normalization to avoid look-ahead bias
     train_size = int(len(df) * Config.TRAIN_TEST_SPLIT)
     df_train = df[:train_size].copy()
     df_test = df[train_size:].copy()
+    
+    # Compute normalization stats from training data only
+    feature_cols = loader.prepare_features(train_df=df_train)
+    
+    print(f"\nUsing {len(feature_cols)} features")
     
     print(f"\nTraining data: {len(df_train)} samples")
     print(f"Testing data: {len(df_test)} samples")
