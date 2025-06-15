@@ -91,8 +91,8 @@ class Config:
     EPSILON = 0.9   # Start at 0.9
     EPSILON_MIN = 0.01
     EPSILON_DECAY = 0.99  # Per-episode decay (moved to end of episode)
-    MIN_HOLDING_BARS = 8  # Increased from 3 to reduce churn
-    COOLDOWN_BARS = 4  # Cooldown after any exit 
+    MIN_HOLDING_BARS = 2  # Minimum holding period
+    COOLDOWN_BARS = 1  # Cooldown after any exit 
     
     # Trading Parameters - USD based with 1M lots
     INITIAL_BALANCE = 1_000_000  # Start with USD 1M
