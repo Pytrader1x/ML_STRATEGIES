@@ -247,7 +247,7 @@ class DataManager:
         # Market Bias
         print("  Calculating Market Bias...")
         start_time = time.time()
-        df = TIC.add_market_bias(df)
+        df = TIC.add_market_bias(df,ha_len=350, ha_len2=30)
         elapsed_time = time.time() - start_time
         print(f"  ✓ Completed Market Bias in {format_time(elapsed_time)} ({len(df):,} rows, {len(df)/elapsed_time:,.0f} rows/sec)")
         
