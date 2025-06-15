@@ -1,0 +1,37 @@
+{
+  "strategy_type": 1,
+  "currency": "AUDUSD",
+  "optimization_complete": "2025-06-15T13:18:56.299766",
+  "best_result": {
+    "id": 3,
+    "params": {
+      "risk_per_trade": 0.002965318726778106,
+      "sl_min_pips": 7.384394526697916,
+      "sl_max_pips": 23.774904857970725,
+      "tp1_multiplier": 0.18085436935112553,
+      "tp2_multiplier": 0.27419837371898675,
+      "trailing_atr_multiplier": 1.4828553034183671,
+      "partial_profit_sl_distance_ratio": 0.44575732268487495,
+      "partial_profit_size_percent": 0.7233573850355819,
+      "use_intelligent_sizing": 0
+    },
+    "avg_sharpe": 0.2559618484686868,
+    "min_sharpe": -0.6382199141346768,
+    "sharpe_std": 0.6325722478928879,
+    "robust_score": 0.06619017410082043,
+    "avg_trades": 789.6666666666666,
+    "avg_return": 2.108831862499557,
+    "avg_win_rate": 59.9291613018417
+  },
+  "parameters": {
+    "risk_per_trade": 0.002965318726778106,
+    "sl_min_pips": 7.384394526697916,
+    "sl_max_pips": 23.774904857970725,
+    "tp1_multiplier": 0.18085436935112553,
+    "tp2_multiplier": 0.27419837371898675,
+    "trailing_atr_multiplier": 1.4828553034183671,
+    "partial_profit_sl_distance_ratio": 0.44575732268487495,
+    "partial_profit_size_percent": 0.7233573850355819,
+    "use_intelligent_sizing": 0
+  }
+}

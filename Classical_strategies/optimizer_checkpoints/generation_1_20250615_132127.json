@@ -1,0 +1,96 @@
+{
+  "generation": 1,
+  "timestamp": "2025-06-15T13:21:27.387364",
+  "memory": {
+    "all_results": [
+      {
+        "config_id": 12,
+        "generation": 1,
+        "params": {
+          "risk_per_trade": 0.0032250000000000004,
+          "sl_min_pips": 5.25,
+          "sl_max_pips": 25.5,
+          "sl_atr_multiplier": 1.4000000000000001,
+          "tp1_multiplier": 0.22000000000000008,
+          "tp2_multiplier": 0.30000000000000004,
+          "tp3_multiplier": 0.8400000000000003,
+          "tsl_activation_pips": 16,
+          "tsl_min_profit_pips": 1.7249999999999999,
+          "trailing_atr_multiplier": 1.4500000000000002,
+          "tp_range_market_multiplier": 0.5999999999999999,
+          "tp_trend_market_multiplier": 1.0649999999999997,
+          "tp_chop_market_multiplier": 0.4800000000000001,
+          "partial_profit_sl_distance_ratio": 0.42000000000000015,
+          "partial_profit_size_percent": 0.7875000000000002,
+          "use_intelligent_sizing": 0.0
+        },
+        "period_results": [
+          {
+            "period": 0,
+            "sharpe": 0.3189569941733356,
+            "return": 3.8813775698852493,
+            "win_rate": 61.30828114126653,
+            "trades": 1437
+          },
+          {
+            "period": 1,
+            "sharpe": 0.6576897147893175,
+            "return": 6.460766622855118,
+            "win_rate": 62.40601503759399,
+            "trades": 1197
+          },
+          {
+            "period": 2,
+            "sharpe": 0.3775935491282581,
+            "return": 3.2753699215836827,
+            "win_rate": 62.903225806451616,
+            "trades": 930
+          },
+          {
+            "period": 3,
+            "sharpe": 0.27507609371364256,
+            "return": 2.2419996884977444,
+            "win_rate": 62.21461187214612,
+            "trades": 876
+          },
+          {
+            "period": 4,
+            "sharpe": 0.16932813540309558,
+            "return": 1.3916651006950413,
+            "win_rate": 63.44497607655503,
+            "trades": 1045
+          }
+        ],
+        "avg_sharpe": 0.35972889744152986,
+        "min_sharpe": 0.16932813540309558,
+        "max_sharpe": 0.6576897147893175,
+        "sharpe_std": 0.16381739218676963,
+        "robust_score": 0.18014788547090066,
+        "avg_trades": 1097.0,
+        "avg_win_rate": 62.45542198680265
+      }
+    ],
+    "high_performers": [],
+    "robust_performers": [],
+    "insights": {}
+  },
+  "best_params": {
+    "risk_per_trade": 0.0032250000000000004,
+    "sl_min_pips": 5.25,
+    "sl_max_pips": 25.5,
+    "sl_atr_multiplier": 1.4000000000000001,
+    "tp1_multiplier": 0.22000000000000008,
+    "tp2_multiplier": 0.30000000000000004,
+    "tp3_multiplier": 0.8400000000000003,
+    "tsl_activation_pips": 16,
+    "tsl_min_profit_pips": 1.7249999999999999,
+    "trailing_atr_multiplier": 1.4500000000000002,
+    "tp_range_market_multiplier": 0.5999999999999999,
+    "tp_trend_market_multiplier": 1.0649999999999997,
+    "tp_chop_market_multiplier": 0.4800000000000001,
+    "partial_profit_sl_distance_ratio": 0.42000000000000015,
+    "partial_profit_size_percent": 0.7875000000000002,
+    "use_intelligent_sizing": 0.0
+  },
+  "best_result": null
+}

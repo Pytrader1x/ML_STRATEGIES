@@ -1,0 +1,26 @@
+{
+  "parameters": {
+    "exit_on_signal_flip": true,
+    "partial_profit_before_sl": true,
+    "partial_profit_size_percent": 0.7,
+    "partial_profit_sl_distance_ratio": 0.3,
+    "relaxed_mode": true,
+    "risk_per_trade": 0.005,
+    "sl_atr_multiplier": 0.8,
+    "sl_max_pips": 10.0,
+    "sl_min_pips": 3.0,
+    "tp1_multiplier": 0.15,
+    "tp2_multiplier": 0.25,
+    "tp3_multiplier": 0.4,
+    "tp_chop_market_multiplier": 0.3,
+    "tp_range_market_multiplier": 0.4,
+    "tp_trend_market_multiplier": 0.6,
+    "trailing_atr_multiplier": 0.8,
+    "tsl_activation_pips": 8.0,
+    "tsl_min_profit_pips": 1.0
+  },
+  "average_sharpe": 4.970513244347651,
+  "robustness": 100.0,
+  "test_periods": 15,
+  "timestamp": "20250615_134221"
+}

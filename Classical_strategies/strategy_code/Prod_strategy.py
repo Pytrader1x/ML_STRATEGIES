@@ -193,13 +193,13 @@ class RiskManager:
                               current_capital: float, is_relaxed: bool = False,
                               confidence: float = 50.0) -> float:
         """Calculate position size based on risk management rules"""
-        # Default position size is 1M
-        position_size_millions = 1.0
+        # Use base position size from config (1M or 2M)
+        position_size_millions = self.config.base_position_size_millions
         
         # Apply intelligent sizing based on confidence
         if self.config.intelligent_sizing:
             size_millions, _ = self.get_position_size_multiplier(confidence)
-            position_size_millions = size_millions
+            position_size_millions = self.config.base_position_size_millions * size_millions
         
         # Apply relaxed mode position reduction
         if is_relaxed:
@@ -250,6 +250,7 @@ class OptimizedStrategyConfig:
     # Capital and risk management
     initial_capital: float = 100_000
     risk_per_trade: float = 0.02
+    base_position_size_millions: float = 1.0  # Base position size in millions (1M or 2M)
     
     # Realistic costs mode
     realistic_costs: bool = False
@@ -1302,29 +1303,56 @@ class OptimizedProdStrategy:
         return self._calculate_performance_metrics()
     
     def _get_exit_price(self, row: pd.Series, trade: Trade, exit_reason: ExitReason) -> float:
-        """Determine exit price with slippage applied"""
+        """Determine exit price with slippage applied, respecting candle boundaries"""
         base_price = row['Close']
         
         if 'take_profit' in exit_reason.value:
             tp_index = int(exit_reason.value.split('_')[-1]) - 1
             base_price = trade.take_profits[tp_index]
             # Apply take profit slippage (should be 0 for limit orders)
-            return self._apply_slippage(base_price, 'take_profit', trade.direction)
+            exit_price = self._apply_slippage(base_price, 'take_profit', trade.direction)
         elif exit_reason == ExitReason.TP1_PULLBACK:
             base_price = trade.take_profits[0]
             # TP1 pullback uses limit order, no slippage
-            return self._apply_slippage(base_price, 'take_profit', trade.direction)
+            exit_price = self._apply_slippage(base_price, 'take_profit', trade.direction)
         elif exit_reason == ExitReason.STOP_LOSS:
             base_price = trade.stop_loss
             # Apply stop loss slippage
-            return self._apply_slippage(base_price, 'stop_loss', trade.direction)
+            exit_price = self._apply_slippage(base_price, 'stop_loss', trade.direction)
         elif exit_reason == ExitReason.TRAILING_STOP:
             base_price = trade.trailing_stop if trade.trailing_stop is not None else trade.stop_loss
             # Apply trailing stop slippage
-            return self._apply_slippage(base_price, 'trailing_stop', trade.direction)
+            exit_price = self._apply_slippage(base_price, 'trailing_stop', trade.direction)
         else:
             # For signal flips and other market exits, use current price with entry slippage
-            return self._apply_slippage(base_price, 'entry', trade.direction)
+            exit_price = self._apply_slippage(base_price, 'entry', trade.direction)
+        
+        # CRITICAL FIX: Ensure exit price respects candle boundaries
+        # For stop losses and trailing stops triggered by intrabar touch,
+        # the exit price cannot exceed the candle's High/Low
+        if self.config.intrabar_stop_on_touch and exit_reason in [ExitReason.STOP_LOSS, ExitReason.TRAILING_STOP]:
+            if trade.direction == TradeDirection.LONG:
+                # For long trades, stop loss exit cannot be lower than the Low
+                exit_price = max(exit_price, row['Low'])
+            else:
+                # For short trades, stop loss exit cannot be higher than the High
+                exit_price = min(exit_price, row['High'])
+        
+        # Additional safety: Ensure all exits are within the candle's range
+        # This prevents any exit from being plotted outside the candle
+        original_exit_price = exit_price
+        exit_price = max(min(exit_price, row['High']), row['Low'])
+        
+        # Debug logging for boundary enforcement
+        if self.config.debug_decisions and original_exit_price != exit_price:
+            print(f"  ⚠️  EXIT PRICE ADJUSTED to respect candle boundaries:")
+            print(f"     Original exit price: {original_exit_price:.5f}")
+            print(f"     Adjusted exit price: {exit_price:.5f}")
+            print(f"     Candle High: {row['High']:.5f}, Low: {row['Low']:.5f}")
+            print(f"     Exit reason: {exit_reason.value}")
+            print(f"     Trade direction: {trade.direction.value}")
+        
+        return exit_price
     
     def _execute_full_exit(self, trade: Trade, exit_time: pd.Timestamp,
                           exit_price: float, exit_reason: ExitReason) -> Trade:
@@ -1709,6 +1737,94 @@ class OptimizedProdStrategy:
         if len(self.trades) > 0:
             pp_stats['pp_percentage'] = (pp_stats['pp_trades'] / len(self.trades)) * 100
         
+        # Calculate additional metrics
+        avg_trade = total_pnl / len(self.trades) if len(self.trades) > 0 else 0
+        
+        # Win/Loss ratio
+        win_loss_ratio = avg_win / abs(avg_loss) if avg_loss != 0 and len(losing_trades) > 0 else (np.inf if len(winning_trades) > 0 else 0)
+        
+        # Expectancy
+        win_prob = len(winning_trades) / len(self.trades) if len(self.trades) > 0 else 0
+        loss_prob = len(losing_trades) / len(self.trades) if len(self.trades) > 0 else 0
+        expectancy = (win_prob * avg_win) + (loss_prob * avg_loss) if len(self.trades) > 0 else 0
+        
+        # Best and worst trades
+        best_trade = max((t.pnl for t in self.trades), default=0)
+        worst_trade = min((t.pnl for t in self.trades), default=0)
+        
+        # Sortino ratio (downside deviation)
+        if len(self.equity_curve) > 1 and hasattr(self, 'df') and self.df is not None:
+            if self.config.use_daily_sharpe:
+                # Aggregate to daily returns
+                equity_df = pd.DataFrame({
+                    'timestamp': self.df.index[:len(self.equity_curve)],
+                    'capital': self.equity_curve
+                })
+                equity_df.set_index('timestamp', inplace=True)
+                daily_equity = equity_df.resample('D').last().dropna()
+                
+                if len(daily_equity) >= 30:
+                    daily_returns = daily_equity['capital'].pct_change().dropna()
+                    downside_returns = daily_returns[daily_returns < 0]
+                    
+                    if len(downside_returns) > 1 and downside_returns.std(ddof=1) > 0:
+                        sortino_ratio = daily_returns.mean() / downside_returns.std(ddof=1) * np.sqrt(252)
+                    else:
+                        sortino_ratio = sharpe_ratio  # Use Sharpe if no downside volatility
+                else:
+                    # Use bar-level returns
+                    returns = np.diff(self.equity_curve) / self.equity_curve[:-1]
+                    downside_returns = returns[returns < 0]
+                    
+                    if len(downside_returns) > 1 and np.std(downside_returns, ddof=1) > 0:
+                        ann_factor = annualization_factor_from_df(self.df)
+                        sortino_ratio = np.mean(returns) / np.std(downside_returns, ddof=1) * ann_factor
+                    else:
+                        sortino_ratio = sharpe_ratio
+            else:
+                # Bar-level calculation
+                returns = np.diff(self.equity_curve) / self.equity_curve[:-1]
+                downside_returns = returns[returns < 0]
+                
+                if len(downside_returns) > 1 and np.std(downside_returns, ddof=1) > 0:
+                    ann_factor = annualization_factor_from_df(self.df)
+                    sortino_ratio = np.mean(returns) / np.std(downside_returns, ddof=1) * ann_factor
+                else:
+                    sortino_ratio = sharpe_ratio
+        else:
+            sortino_ratio = 0
+        
+        # SQN (System Quality Number)
+        if len(self.trades) > 1:
+            trade_pnls = [t.pnl for t in self.trades]
+            trade_mean = np.mean(trade_pnls)
+            trade_std = np.std(trade_pnls, ddof=1)
+            
+            if trade_std > 0:
+                sqn = (trade_mean / trade_std) * np.sqrt(len(self.trades))
+            else:
+                sqn = 0
+        else:
+            sqn = 0
+        
+        # Trades per day
+        if hasattr(self, 'df') and self.df is not None and len(self.df) > 0:
+            trading_days = (self.df.index[-1] - self.df.index[0]).days
+            if trading_days > 0:
+                trades_per_day = len(self.trades) / trading_days
+            else:
+                # Less than a day of data - calculate trades per hour instead
+                trading_hours = (self.df.index[-1] - self.df.index[0]).total_seconds() / 3600
+                if trading_hours > 0:
+                    trades_per_day = (len(self.trades) / trading_hours) * 24
+                else:
+                    trades_per_day = 0
+        else:
+            trades_per_day = 0
+        
+        # Recovery factor
+        recovery_factor = abs(total_return / max_drawdown) if max_drawdown > 0 else 0
+        
         return {
             'total_trades': len(self.trades),
             'winning_trades': len(winning_trades),
@@ -1718,9 +1834,18 @@ class OptimizedProdStrategy:
             'total_return': total_return,
             'avg_win': avg_win,
             'avg_loss': avg_loss,
+            'avg_trade': avg_trade,
             'profit_factor': profit_factor,
             'max_drawdown': max_drawdown,
             'sharpe_ratio': sharpe_ratio,
+            'sortino_ratio': sortino_ratio,
+            'win_loss_ratio': win_loss_ratio,
+            'expectancy': expectancy,
+            'best_trade': best_trade,
+            'worst_trade': worst_trade,
+            'sqn': sqn,
+            'trades_per_day': trades_per_day,
+            'recovery_factor': recovery_factor,
             'exit_reasons': exit_reasons,
             'tp_hit_stats': tp_hit_stats,
             'sl_outcome_stats': sl_outcome_stats,
@@ -1743,9 +1868,18 @@ class OptimizedProdStrategy:
             'total_return': 0,
             'avg_win': 0,
             'avg_loss': 0,
+            'avg_trade': 0,
             'profit_factor': 0,
             'max_drawdown': 0,
             'sharpe_ratio': 0,
+            'sortino_ratio': 0,
+            'win_loss_ratio': 0,
+            'expectancy': 0,
+            'best_trade': 0,
+            'worst_trade': 0,
+            'sqn': 0,
+            'trades_per_day': 0,
+            'recovery_factor': 0,
             'exit_reasons': {},
             'tp_hit_stats': {'tp1_hits': 0, 'tp2_hits': 0, 'tp3_hits': 0, 'partial_exits': 0},
             'sl_outcome_stats': {'sl_loss': 0, 'sl_breakeven': 0, 'sl_profit': 0, 'sl_total': 0},
