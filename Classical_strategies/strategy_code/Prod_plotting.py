@@ -854,14 +854,23 @@ class ProductionPlotter:
         individual_exit_pnl = 0
         final_exit_size = remaining_size  # Store original remaining size before it gets set to 0
         
-        if 'take_profit' in str(exit_reason) and final_exit_time:
-            # This is a TP final exit - find the corresponding partial exit
+        # Check if this is plotting the final exit marker
+        is_final_exit = (final_exit_time and exit_idx == len(x_pos) - 1)
+        
+        # For final exits, look for the partial exit with tp_level=0 (non-TP exit)
+        # or the last partial exit at the final exit time
+        if is_final_exit and final_exit_time:
+            # Find the partial exit at the final exit time
             for pe in partial_exits:
-                if (hasattr(pe, 'time') and pe.time == final_exit_time and
-                    hasattr(pe, 'pnl') and hasattr(pe, 'size')):
-                    individual_exit_pnl = pe.pnl
-                    final_exit_size = pe.size / 1000000  # Convert to millions
-                    break
+                pe_time = pe.time if hasattr(pe, 'time') else pe.get('time')
+                if pe_time == final_exit_time:
+                    pe_tp_level = pe.tp_level if hasattr(pe, 'tp_level') else pe.get('tp_level', -1)
+                    # For final exits, we want tp_level=0 or the last one at this time
+                    if pe_tp_level == 0 or ('take_profit' in str(exit_reason) and pe_tp_level > 0):
+                        individual_exit_pnl = pe.pnl if hasattr(pe, 'pnl') else pe.get('pnl', 0)
+                        pe_size = pe.size if hasattr(pe, 'size') else pe.get('size', 0)
+                        final_exit_size = pe_size / 1000000  # Convert to millions
+                        break
         
         # Fallback calculation if we didn't find the partial exit data
         if individual_exit_pnl == 0 and final_exit_size > 0:
@@ -897,14 +906,18 @@ class ProductionPlotter:
             total_pnl_text = "$0"
         
         # Create text with format: "TP3|+31.3p|$300|Total $1300|0.25M"
+        exit_reason_str = str(exit_reason)
         if exit_reason == 'trailing_stop':
             text = f'TSL|{exit_pips:+.1f}p|{individual_pnl_text}|Total {total_pnl_text}|{exit_size_m:.2f}M'
         elif exit_reason == 'stop_loss':
             text = f'SL|{exit_pips:+.1f}p|{individual_pnl_text}|Total {total_pnl_text}|{exit_size_m:.2f}M'
-        elif 'take_profit' in str(exit_reason):
+        elif 'take_profit' in exit_reason_str:
             # Extract TP number
             tp_num = exit_reason.split('_')[-1] if '_' in exit_reason else '3'
             text = f'TP{tp_num}|{exit_pips:+.1f}p|{individual_pnl_text}|Total {total_pnl_text}|{exit_size_m:.2f}M'
+        elif exit_reason == 'tp1_pullback' or 'tp1_pullback' in exit_reason_str:
+            # TP1 pullback is the final exit at TP1 price
+            text = f'TP1 PB|{exit_pips:+.1f}p|{individual_pnl_text}|Total {total_pnl_text}|{exit_size_m:.2f}M'
         else:
             text = f'{exit_pips:+.1f}p|{individual_pnl_text}|Total {total_pnl_text}|{exit_size_m:.2f}M'
             
