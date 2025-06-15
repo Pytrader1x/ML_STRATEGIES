@@ -80,7 +80,7 @@ class Config:
     EPISODES = 200
     BATCH_SIZE = 512  # Optimal batch size for MPS
     MEMORY_SIZE = 50000
-    UPDATE_TARGET_EVERY = 100  # Steps
+    UPDATE_TARGET_EVERY = 500  # P2: Slower target network sync
     
     # Window sampling
     MIN_WINDOW_SIZE = 10000  # Larger windows
@@ -88,13 +88,9 @@ class Config:
     
     # RL Hyperparameters - TUNED
     GAMMA = 0.995  # Higher for long-term
-    EPSILON = 1.0
+    EPSILON = 0.9   # P1: Start at 0.9 for episode-based decay
     EPSILON_MIN = 0.01
-
-    # Epsilon decay per-step: smaller values = slower decay, larger values = faster decay
-    # Examples: 0.90 (fast decay) → 0.9995 (medium) → 0.99975 (slow) → 0.9999 (very slow)
-    #           ↑ faster decay                                                    ↑ slower decay
-    EPSILON_DECAY = 0.99985  # Slower per-step decay (was 0.9995) 
+    EPSILON_DECAY = 0.95  # P1: Episode-based decay (not per-step) 
     
     # Trading Parameters - USD based with 1M lots
     INITIAL_BALANCE = 1_000_000  # Start with USD 1M
@@ -369,12 +365,16 @@ class TradingEnvironment:
             sl_mult *= 0.7
             tp_mult *= 0.7
         
+        # P2: Minimum SL distance (≥ 0.0005 or 5 pips)
+        sl_distance = max(current_atr * sl_mult, 0.0005)
+        tp_distance = current_atr * tp_mult
+        
         if direction == 1:  # Long
-            stop_loss = entry_price - (current_atr * sl_mult)
-            take_profit = entry_price + (current_atr * tp_mult)
+            stop_loss = entry_price - sl_distance
+            take_profit = entry_price + tp_distance
         else:  # Short
-            stop_loss = entry_price + (current_atr * sl_mult)
-            take_profit = entry_price - (current_atr * tp_mult)
+            stop_loss = entry_price + sl_distance
+            take_profit = entry_price - tp_distance
         
         return stop_loss, take_profit
     
@@ -444,6 +444,10 @@ class TradingEnvironment:
                 info['position_opened'] = 'long'
                     
             elif self.position['direction'] == -1:
+                # P1: Minimum holding bars - prevent instant flip
+                if self.position['holding_time'] <= 3:
+                    return 0, info  # Return 0 reward, no action taken
+                
                 # Close short and open long
                 self._close_position(current_price, 'manual')
                 
@@ -488,6 +492,10 @@ class TradingEnvironment:
                 info['position_opened'] = 'short'
                     
             elif self.position['direction'] == 1:
+                # P1: Minimum holding bars - prevent instant flip
+                if self.position['holding_time'] <= 3:
+                    return 0, info  # Return 0 reward, no action taken
+                
                 # Close long position (manual exit)
                 self._close_position(current_price, 'manual')
                 
@@ -522,21 +530,13 @@ class TradingEnvironment:
         # Track equity curve at each step (using NAV)
         self.equity_curve.append(nav_after)
         
+        # P0-2: Pure NAV-Δ reward only
         # Calculate NAV-Δ reward: r_t = (B_t + U_t) - (B_{t-1} + U_{t-1})
         nav_delta = nav_after - nav_before
         
         # Scale by 1000 to get typical rewards in [-1, 1] range
         # This symmetric scaling ensures no bias toward long or short
-        reward = (nav_delta / self.initial_balance) * 1000
-        
-        # Optional: Small constant time penalty to encourage efficient exits
-        reward -= 0.0001
-        
-        # Optional: Tiny capped unrealized P&L shaping (for sparse rewards)
-        if self.position and abs(self.position['unrealized_pnl']) > 0:
-            # Cap at ±0.001 to avoid dominating the main reward
-            shaping = np.clip(self.position['unrealized_pnl'] / self.initial_balance, -0.001, 0.001)
-            reward += shaping
+        reward = (nav_delta / self.initial_balance) * 1000 - 0.0001
         
         return reward, info
     
@@ -577,17 +577,23 @@ class TradingEnvironment:
         else:  # Short
             pnl = (self.position['entry_price'] - exit_price) * self.position['size']
         
-        # With 1M units, pnl is already in USD
-        self.balance += pnl
+        # P0-1: Real transaction cost ($20 ≈ 0.2 pip per 1M AUDUSD)
+        transaction_cost = 20.0  # $20 per 1M units round trip
+        net_pnl = pnl - transaction_cost
         
-        # Record trade with enhanced metrics
+        # Update balance with net P&L after costs
+        self.balance += net_pnl
+        
+        # Record trade with enhanced metrics including costs
         self.trade_history.append({
             'entry_price': self.position['entry_price'],
             'exit_price': exit_price,
             'direction': self.position['direction'],
-            'pnl': pnl,
-            'pnl_usd': pnl,  # Already in USD with 1M positions
-            'pnl_pct': pnl / self.initial_balance,
+            'pnl': net_pnl,  # Net P&L after costs
+            'pnl_usd': net_pnl,  # Net in USD
+            'gross_pnl_usd': pnl,  # P0-1: Gross P&L before costs
+            'transaction_cost': transaction_cost,  # P0-1: Cost tracking
+            'pnl_pct': net_pnl / self.initial_balance,
             'holding_time': self.position['holding_time'],
             'exit_type': exit_type,
             'tp_exit': exit_type == 'take_profit',
@@ -704,11 +710,22 @@ class TradingAgent:
         experience = Experience(state, action, reward, next_state, done)
         self.memory.push(experience)
     
-    def act(self, state: torch.Tensor) -> int:
-        """Choose action using epsilon-greedy policy - now accepts torch.Tensor"""
-        # Epsilon-greedy
+    def act(self, state: torch.Tensor, signal: float = 0.0) -> int:
+        """Choose action using epsilon-greedy policy with signal-based masking
+        
+        P0-3: Action masking based on Composite_Signal
+        - If signal > 0.2: disable Sell (action 2)
+        - If signal < -0.2: disable Buy (action 1)
+        """
+        # Epsilon-greedy with masked actions
         if random.random() <= self.epsilon:
-            return random.randrange(self.action_size)
+            # Create action mask based on signal
+            valid_actions = [0, 1, 2]  # Hold, Buy, Sell
+            if signal > 0.2:
+                valid_actions.remove(2)  # Remove Sell when bullish
+            elif signal < -0.2:
+                valid_actions.remove(1)  # Remove Buy when bearish
+            return random.choice(valid_actions)
         
         # Get Q-values - state is already a tensor on device!
         if state.dim() == 1:
@@ -722,8 +739,15 @@ class TradingAgent:
         # Add exploration bonus
         q_values_np = q_values.cpu().numpy()[0]
         exploration_bonus = np.random.normal(0, 0.01, self.action_size)
+        q_values_np += exploration_bonus
         
-        return np.argmax(q_values_np + exploration_bonus)
+        # P0-3: Apply action masking
+        if signal > 0.2:
+            q_values_np[2] = -1e9  # Mask Sell when bullish
+        elif signal < -0.2:
+            q_values_np[1] = -1e9  # Mask Buy when bearish
+        
+        return np.argmax(q_values_np)
     
     def replay(self, batch_size: int):
         """Train model on batch of experiences with prioritized replay"""
@@ -768,9 +792,7 @@ class TradingAgent:
         if self.update_counter % Config.UPDATE_TARGET_EVERY == 0:
             self.update_target_model()
         
-        # Decay epsilon per step
-        if self.epsilon > self.epsilon_min:
-            self.epsilon *= self.epsilon_decay
+        # P1: Epsilon decay moved to episode level
         
         # Increment beta
         self.beta = min(1.0, self.beta + self.beta_increment)
@@ -798,6 +820,9 @@ def train_agent(agent: TradingAgent, env: TradingEnvironment, df_train: pd.DataF
         """Save Plotly figure as HTML asynchronously"""
         fig.write_html(path)    
     for episode in range(episodes):
+        # P1: Episode-based epsilon decay
+        agent.epsilon = max(Config.EPSILON_MIN, agent.epsilon * Config.EPSILON_DECAY)
+        
         # Reset environment
         env.reset()
         
@@ -826,8 +851,11 @@ def train_agent(agent: TradingAgent, env: TradingEnvironment, df_train: pd.DataF
                    desc=f"Episode {episode+1}/{episodes}")
         
         for t in pbar:
-            # Agent takes action
-            action = agent.act(state)
+            # P0-3: Get composite signal for action masking
+            composite_signal = df_train['Composite_Signal'].iloc[t]
+            
+            # Agent takes action with signal-based masking
+            action = agent.act(state, composite_signal)
             
             # Execute action
             reward, info = env.execute_action(action, t)
@@ -944,7 +972,7 @@ def train_agent(agent: TradingAgent, env: TradingEnvironment, df_train: pd.DataF
         print(f"  Current Epsilon: {agent.epsilon:.4f}")
         
         # Create interactive Plotly chart for episode
-        if len(trades) > 0 and episode % 5 == 0:  # Save every 5th episode to avoid too many files
+        if len(trades) > 0 and episode % 1 == 0:  # Save every 1th episode to avoid too many files
             # Get price series for this window
             prices = df_train['Close'].iloc[start_idx:end_idx].values
             
@@ -1243,8 +1271,8 @@ def train_agent(agent: TradingAgent, env: TradingEnvironment, df_train: pd.DataF
             fig.update_yaxes(title_text="Trade P&L ($)", row=3, col=1)
             fig.update_yaxes(title_text="Cumulative P&L ($)", row=4, col=1)
             
-            # P0: Ensure position layer is below markers
-            fig.update_traces(selector=dict(name="Position"), layer="below")
+            # Note: Plotly doesn't support 'layer' property for scatter traces
+            # Position fill transparency already ensures markers are visible
             
             # Save HTML asynchronously
             executor.submit(async_save_html, fig, f'plots/episode_{episode+1:03d}.html')
@@ -1316,8 +1344,12 @@ def main(fast_mode: bool = False):
     test_trades = []
     
     for t in tqdm(range(Config.WINDOW_SIZE, len(df_test) - 1)):
-        action = agent.act(state)
-        reward, info = env_test.execute_action(action, t)
+        # P0-3: Get composite signal for action masking
+        composite_signal = df_test['Composite_Signal'].iloc[t]
+        
+        # Agent takes action with signal-based masking
+        action = agent.act(state, composite_signal)
+        _, info = env_test.execute_action(action, t)
         
         next_state = env_test.get_state(t + 1, Config.WINDOW_SIZE)
         state = next_state
