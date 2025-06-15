@@ -88,9 +88,9 @@ class Config:
     
     # RL Hyperparameters - TUNED
     GAMMA = 0.995  # Higher for long-term
-    EPSILON = 0.9   # P1: Start at 0.9 for episode-based decay
+    EPSILON = 0.9   # Start at 0.9
     EPSILON_MIN = 0.01
-    EPSILON_DECAY = 0.95  # P1: Episode-based decay (not per-step) 
+    EPSILON_DECAY = 0.99985  # Per-step decay to reach 0.01 by ~30k steps (6 episodes) 
     
     # Trading Parameters - USD based with 1M lots
     INITIAL_BALANCE = 1_000_000  # Start with USD 1M
@@ -799,7 +799,8 @@ class TradingAgent:
         if self.update_counter % Config.UPDATE_TARGET_EVERY == 0:
             self.update_target_model()
         
-        # P1: Epsilon decay moved to episode level
+        # Epsilon decay per-step (slower rate to reach terminal by episode 5-6)
+        self.epsilon = max(self.epsilon_min, self.epsilon * self.epsilon_decay)
         
         # Increment beta
         self.beta = min(1.0, self.beta + self.beta_increment)
@@ -827,9 +828,6 @@ def train_agent(agent: TradingAgent, env: TradingEnvironment, df_train: pd.DataF
         """Save Plotly figure as HTML asynchronously"""
         fig.write_html(path)    
     for episode in range(episodes):
-        # P1: Episode-based epsilon decay
-        agent.epsilon = max(Config.EPSILON_MIN, agent.epsilon * Config.EPSILON_DECAY)
-        
         # Reset environment
         env.reset()
         
@@ -975,8 +973,15 @@ def train_agent(agent: TradingAgent, env: TradingEnvironment, df_train: pd.DataF
         else:
             no_improvement_count += 1
         
-        # Print current epsilon (decay happens per-step in replay)
+        # Print current epsilon (now decaying per-step in replay)
         print(f"  Current Epsilon: {agent.epsilon:.4f}")
+        
+        # Log expected epsilon trajectory
+        if episode == 0:
+            steps_per_episode = window_length
+            for future_ep in [1, 2, 3, 4, 5, 6]:
+                expected_epsilon = Config.EPSILON * (Config.EPSILON_DECAY ** (steps_per_episode * future_ep))
+                print(f"  Expected ε by episode {future_ep}: {expected_epsilon:.4f}")
         
         # Create interactive Plotly chart for episode
         if len(trades) > 0 and episode % 1 == 0:  # Save every 1th episode to avoid too many files
@@ -1010,53 +1015,27 @@ def train_agent(agent: TradingAgent, env: TradingEnvironment, df_train: pd.DataF
                     else:
                         lose_exits.append((exit_idx, prices[exit_idx], i, trade['pnl_usd'], trade['direction']))
             
-            # Create 4-row subplot with better proportions
+            # Create simple 2-row subplot for readability
             fig = make_subplots(
-                rows=4, cols=1,
+                rows=2, cols=1,
                 shared_xaxes=True,
-                row_heights=[0.4, 0.15, 0.15, 0.3],  # P1: Better proportions
-                vertical_spacing=0.03,
+                row_heights=[0.7, 0.3],  # Focus on price chart
+                vertical_spacing=0.05,
                 subplot_titles=(
-                    f"Episode {episode+1} - Price & Trades",
-                    "Position Size & Direction",
-                    "Per-Trade P&L",
+                    f"Episode {episode+1} - AUDUSD Price & Trades",
                     "Cumulative P&L (USD)"
                 )
             )
             
-            # --- POSITION SIZE (row 2) - Added first with ultra-light fill ---
-            if position_history:
-                bars = [p['bar'] for p in position_history]
-                sizes = [p['size'] for p in position_history]
-                
-                fig.add_trace(
-                    go.Scatter(
-                        x=bars,
-                        y=sizes,
-                        mode="lines",
-                        line=dict(shape='hv', width=1, color='green'),
-                        fill='tozeroy',
-                        fillcolor='rgba(0,200,0,0.05)',  # 5% opacity so it never hides anything
-                        name="Position size",
-                        showlegend=False,
-                        hovertemplate="Bar: %{x}<br>Lots: %{y:,.0f}<br>%{text}<extra></extra>",
-                        text=['Long' if p['direction'] > 0 else 'Short' if p['direction'] < 0 else 'Flat' 
-                              for p in position_history]
-                    ),
-                    row=2, col=1
-                )
-                
-                # Add zero line for reference
-                fig.add_hline(y=0, line_dash="dash", line_color="gray", opacity=0.5, row=2, col=1)
             
-            # Add price line (now added after position to ensure it's on top)
+            # Add simple price line
             fig.add_trace(
                 go.Scatter(
                     x=list(range(len(prices))),
                     y=prices,
                     mode="lines",
-                    name="Price",
-                    line=dict(width=1, color='royalblue'),
+                    name="AUDUSD",
+                    line=dict(width=1.5, color='#1f77b4'),  # Default blue
                     showlegend=True
                 ),
                 row=1, col=1
@@ -1064,107 +1043,78 @@ def train_agent(agent: TradingAgent, env: TradingEnvironment, df_train: pd.DataF
             
             # Removed unused marker_size variable - using fixed size of 8 in markers
             
-            # ---------- ENTRY MARKERS (row 1) ----------
-            # LONG entry ▲ green
-            long_entries = [e for e in win_entries + lose_entries if e[4] == 1]
-            if long_entries:
-                fig.add_trace(
-                    go.Scatter(
-                        x=[e[0] for e in long_entries],
-                        y=[e[1] for e in long_entries],
-                        mode="markers",
-                        marker=dict(symbol="triangle-up", size=8, color="green"),
-                        name="Long entry",
-                        showlegend=True,
-                        hovertemplate="Long entry<br>Bar: %{x}<br>Price: %{y:.5f}<extra></extra>",
-                    ),
-                    row=1, col=1
-                )
-                
-            # SHORT entry ▼ red
-            short_entries = [e for e in win_entries + lose_entries if e[4] == -1]
-            if short_entries:
-                fig.add_trace(
-                    go.Scatter(
-                        x=[e[0] for e in short_entries],
-                        y=[e[1] for e in short_entries],
-                        mode="markers",
-                        marker=dict(symbol="triangle-down", size=8, color="red"),
-                        name="Short entry",
-                        showlegend=True,
-                        hovertemplate="Short entry<br>Bar: %{x}<br>Price: %{y:.5f}<extra></extra>",
-                    ),
-                    row=1, col=1
-                )
-                
+            # Add simple entry/exit markers
+            # Entries (up triangles)
+            entry_indices = []
+            entry_prices = []
+            entry_colors = []
+            entry_texts = []
             
-            # ---------- EXIT MARKERS (row 1) ----------
-            # LONG exit ▼ same colour as entry
-            long_exits = [e for e in win_exits + lose_exits if e[4] == 1]
-            if long_exits:
-                fig.add_trace(
-                    go.Scatter(
-                        x=[e[0] for e in long_exits],
-                        y=[e[1] for e in long_exits],
-                        mode="markers",
-                        marker=dict(symbol="triangle-down", size=8, color="green"),
-                        name="Long exit",
-                        showlegend=False,
-                        hovertemplate="Long exit<br>Bar: %{x}<br>Price: %{y:.5f}<extra></extra>",
-                    ),
-                    row=1, col=1
-                )
-                
-            # SHORT exit ▲
-            short_exits = [e for e in win_exits + lose_exits if e[4] == -1]
-            if short_exits:
-                fig.add_trace(
-                    go.Scatter(
-                        x=[e[0] for e in short_exits],
-                        y=[e[1] for e in short_exits],
-                        mode="markers",
-                        marker=dict(symbol="triangle-up", size=8, color="red"),
-                        name="Short exit",
-                        showlegend=False,
-                        hovertemplate="Short exit<br>Bar: %{x}<br>Price: %{y:.5f}<extra></extra>",
-                    ),
-                    row=1, col=1
-                )
-                
+            # Exits (down triangles)  
+            exit_indices = []
+            exit_prices = []
+            exit_colors = []
+            exit_texts = []
             
-            # Add per-trade P&L bars with downsampling if needed (P1)
-            if trades:
-                pnl_list = [t['pnl_usd'] for t in trades]
+            for i, trade in enumerate(trades):
+                entry_idx = trade.get('entry_index', 0) - start_idx
+                exit_idx = entry_idx + trade['holding_time']
                 
-                # P1: Downsample if too many trades
-                skip = max(1, len(pnl_list) // 500)
-                if skip > 1:
-                    pnl_display = pnl_list[::skip]
-                    indices = list(range(0, len(pnl_list), skip))
-                else:
-                    pnl_display = pnl_list
-                    indices = list(range(len(pnl_list)))
-                
-                colors = ['darkgreen' if p > 0 else 'darkred' for p in pnl_display]
-                
+                if 0 <= entry_idx < len(prices):
+                    entry_indices.append(entry_idx)
+                    entry_prices.append(prices[entry_idx])
+                    entry_colors.append('green' if trade['direction'] == 1 else 'red')
+                    entry_texts.append(f"{'Long' if trade['direction'] == 1 else 'Short'} Entry<br>Trade #{i+1}")
+                    
+                if 0 <= exit_idx < len(prices):
+                    exit_indices.append(exit_idx)
+                    exit_prices.append(prices[exit_idx])
+                    exit_colors.append('green' if trade['direction'] == 1 else 'red')
+                    exit_texts.append(f"{'Long' if trade['direction'] == 1 else 'Short'} Exit<br>Trade #{i+1}<br>P&L: ${trade['pnl_usd']:,.0f}")
+            
+            # Add all entries as one trace
+            if entry_indices:
                 fig.add_trace(
-                    go.Bar(
-                        x=indices,
-                        y=pnl_display,
-                        marker_color=colors,
-                        marker_line_width=0,  # P1: No border lines
-                        width=1,  # P1: Fixed width
-                        opacity=0.6,  # P1: Cap opacity
-                        name="Trade P&L",
-                        text=[f"${p:,.0f}" for p in pnl_display],
-                        hovertemplate="Trade #%{x}<br>P&L: %{text}<extra></extra>",
+                    go.Scatter(
+                        x=entry_indices,
+                        y=entry_prices,
+                        mode="markers",
+                        marker=dict(
+                            symbol="triangle-up",
+                            size=10,
+                            color=entry_colors,
+                            line=dict(width=1, color='black')
+                        ),
+                        text=entry_texts,
+                        hovertemplate="%{text}<br>Price: %{y:.5f}<extra></extra>",
+                        name="Entries",
                         showlegend=True
                     ),
-                    row=3, col=1
+                    row=1, col=1
+                )
+            
+            # Add all exits as one trace
+            if exit_indices:
+                fig.add_trace(
+                    go.Scatter(
+                        x=exit_indices,
+                        y=exit_prices,
+                        mode="markers",
+                        marker=dict(
+                            symbol="triangle-down",
+                            size=10,
+                            color=exit_colors,
+                            line=dict(width=1, color='black')
+                        ),
+                        text=exit_texts,
+                        hovertemplate="%{text}<br>Price: %{y:.5f}<extra></extra>",
+                        name="Exits",
+                        showlegend=True
+                    ),
+                    row=1, col=1
                 )
                 
-                # Add zero line for P&L bars
-                fig.add_hline(y=0, line_dash="solid", line_color="black", opacity=0.3, row=3, col=1)
+            
             
             # Add cumulative P&L from equity curve
             if len(env.equity_curve) > 0:
@@ -1181,46 +1131,25 @@ def train_agent(agent: TradingAgent, env: TradingEnvironment, df_train: pd.DataF
                         hovertemplate="Bar: %{x}<br>P&L: $%{y:,.0f}<extra></extra>",
                         showlegend=True
                     ),
-                    row=4, col=1
+                    row=2, col=1
                 )
                 
-                # Add cumulative trade count
-                trade_count = []
-                count = 0
-                for i in range(len(cum_pnl)):
-                    # Count trades that have closed by this bar
-                    count = sum(1 for t in trades if (t['entry_index'] - start_idx + t['holding_time']) <= i)
-                    trade_count.append(count)
-                
-                # Add secondary y-axis for trade count
-                fig.add_trace(
-                    go.Scatter(
-                        x=list(range(len(trade_count))),
-                        y=trade_count,
-                        mode="lines",
-                        name="Trade Count",
-                        line=dict(color='purple', width=1, dash='dot'),
-                        yaxis='y2',
-                        hovertemplate="Bar: %{x}<br>Trades: %{y}<extra></extra>",
-                        showlegend=True
-                    ),
-                    row=4, col=1
-                )
+                # Add zero line for P&L
+                fig.add_hline(y=0, line_dash="dash", line_color="gray", opacity=0.5, row=2, col=1)
             
-            # Update layout
+            # Update layout for simplicity
             fig.update_layout(
-                height=1000,
-                width=1600,  # P2: Wider for 4K screens
-                title_text=f"Episode {episode+1}: P&L ${final_profit_usd:,.0f} ({final_profit_pct:.1f}%) | Sharpe: {sharpe:.2f} | Trades: {len(trades)}",
+                height=700,
+                width=1400,
+                title_text=f"Episode {episode+1}: P&L ${final_profit_usd:,.0f} ({final_profit_pct:.1f}%) | Sharpe: {sharpe:.2f} | Trades: {len(trades)} | Win Rate: {win_rate:.1f}%",
                 showlegend=True,
                 hovermode='x unified',
                 template='plotly_white',
-                # Configure secondary y-axis for trade count
-                yaxis2=dict(
-                    title="Trade Count",
-                    overlaying='y',
-                    side='right',
-                    showgrid=False
+                legend=dict(
+                    yanchor="top",
+                    y=0.99,
+                    xanchor="left",
+                    x=0.01
                 )
             )
             
@@ -1232,11 +1161,9 @@ def train_agent(agent: TradingAgent, env: TradingEnvironment, df_train: pd.DataF
                 row=1, col=1
             )
             
-            # Update other axes
-            fig.update_xaxes(title_text="Time (bars)", row=4, col=1)
-            fig.update_yaxes(title_text="Position Size", row=2, col=1)
-            fig.update_yaxes(title_text="Trade P&L ($)", row=3, col=1)
-            fig.update_yaxes(title_text="Cumulative P&L ($)", row=4, col=1)
+            # Update axes
+            fig.update_xaxes(title_text="Time (bars)", row=2, col=1)
+            fig.update_yaxes(title_text="Cumulative P&L ($)", row=2, col=1)
             
             # Note: Plotly doesn't support 'layer' property for scatter traces
             # Position fill transparency already ensures markers are visible
