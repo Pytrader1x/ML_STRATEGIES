@@ -446,29 +446,32 @@ class TradingEnvironment:
             elif self.position['direction'] == -1:
                 # P1: Minimum holding bars - prevent instant flip
                 if self.position['holding_time'] <= 3:
-                    return 0, info  # Return 0 reward, no action taken
+                    # BUG FIX: Don't return early - let method continue to update metrics
+                    action = 0  # Convert to Hold action
+                    info['action_blocked'] = 'min_hold_time'
                 
-                # Close short and open long
-                self._close_position(current_price, 'manual')
-                
-                # Open long position
-                stop_loss, take_profit = self.calculate_adaptive_sl_tp(
-                    current_price, 1, False
-                )
-                
-                self.position = {
-                    'entry_price': current_price,
-                    'size': Config.POSITION_SIZE,
-                    'direction': 1,
-                    'stop_loss': stop_loss,
-                    'take_profit': take_profit,
-                    'entry_index': index,
-                    'unrealized_pnl': 0,
-                    'holding_time': 0,
-                    'entry_signal_strength': self.df['Composite_Signal'].iloc[index]
-                }
-                
-                info['position_opened'] = 'long'
+                else:
+                    # Close short and open long
+                    self._close_position(current_price, 'manual')
+                    
+                    # Open long position
+                    stop_loss, take_profit = self.calculate_adaptive_sl_tp(
+                        current_price, 1, False
+                    )
+                    
+                    self.position = {
+                        'entry_price': current_price,
+                        'size': Config.POSITION_SIZE,
+                        'direction': 1,
+                        'stop_loss': stop_loss,
+                        'take_profit': take_profit,
+                        'entry_index': index,
+                        'unrealized_pnl': 0,
+                        'holding_time': 0,
+                        'entry_signal_strength': self.df['Composite_Signal'].iloc[index]
+                    }
+                    
+                    info['position_opened'] = 'long'
                     
         elif action == 2:  # Sell
             if not self.position:
@@ -494,29 +497,32 @@ class TradingEnvironment:
             elif self.position['direction'] == 1:
                 # P1: Minimum holding bars - prevent instant flip
                 if self.position['holding_time'] <= 3:
-                    return 0, info  # Return 0 reward, no action taken
+                    # BUG FIX: Don't return early - let method continue to update metrics
+                    action = 0  # Convert to Hold action
+                    info['action_blocked'] = 'min_hold_time'
                 
-                # Close long position (manual exit)
-                self._close_position(current_price, 'manual')
-                
-                # Open short position
-                stop_loss, take_profit = self.calculate_adaptive_sl_tp(
-                    current_price, -1, False
-                )
-                
-                self.position = {
-                    'entry_price': current_price,
-                    'size': Config.POSITION_SIZE,
-                    'direction': -1,
-                    'stop_loss': stop_loss,
-                    'take_profit': take_profit,
-                    'entry_index': index,
-                    'unrealized_pnl': 0,
-                    'holding_time': 0,
-                    'entry_signal_strength': self.df['Composite_Signal'].iloc[index]
-                }
-                
-                info['position_opened'] = 'short'
+                else:
+                    # Close long position (manual exit)
+                    self._close_position(current_price, 'manual')
+                    
+                    # Open short position
+                    stop_loss, take_profit = self.calculate_adaptive_sl_tp(
+                        current_price, -1, False
+                    )
+                    
+                    self.position = {
+                        'entry_price': current_price,
+                        'size': Config.POSITION_SIZE,
+                        'direction': -1,
+                        'stop_loss': stop_loss,
+                        'take_profit': take_profit,
+                        'entry_index': index,
+                        'unrealized_pnl': 0,
+                        'holding_time': 0,
+                        'entry_signal_strength': self.df['Composite_Signal'].iloc[index]
+                    }
+                    
+                    info['position_opened'] = 'short'
         
         # Update metrics
         self._update_metrics()
@@ -577,8 +583,9 @@ class TradingEnvironment:
         else:  # Short
             pnl = (self.position['entry_price'] - exit_price) * self.position['size']
         
-        # P0-1: Real transaction cost ($20 ≈ 0.2 pip per 1M AUDUSD)
-        transaction_cost = 20.0  # $20 per 1M units round trip
+        # P0-1: Real transaction cost - $20 round trip (0.2 pip per 1M AUDUSD)
+        # This is the FULL round-trip cost, applied only at exit
+        transaction_cost = 20.0  # $20 per 1M units round trip (entry + exit spreads)
         net_pnl = pnl - transaction_cost
         
         # Update balance with net P&L after costs
@@ -719,12 +726,12 @@ class TradingAgent:
         """
         # Epsilon-greedy with masked actions
         if random.random() <= self.epsilon:
-            # Create action mask based on signal
+            # Create action mask based on signal (tightened thresholds)
             valid_actions = [0, 1, 2]  # Hold, Buy, Sell
-            if signal > 0.2:
-                valid_actions.remove(2)  # Remove Sell when bullish
-            elif signal < -0.2:
-                valid_actions.remove(1)  # Remove Buy when bearish
+            if signal > 0.35:  # Stronger bullish signal required
+                valid_actions.remove(2)  # Remove Sell when strongly bullish
+            elif signal < -0.35:  # Stronger bearish signal required
+                valid_actions.remove(1)  # Remove Buy when strongly bearish
             return random.choice(valid_actions)
         
         # Get Q-values - state is already a tensor on device!
@@ -741,11 +748,11 @@ class TradingAgent:
         exploration_bonus = np.random.normal(0, 0.01, self.action_size)
         q_values_np += exploration_bonus
         
-        # P0-3: Apply action masking
-        if signal > 0.2:
-            q_values_np[2] = -1e9  # Mask Sell when bullish
-        elif signal < -0.2:
-            q_values_np[1] = -1e9  # Mask Buy when bearish
+        # P0-3: Apply action masking (tightened thresholds)
+        if signal > 0.35:  # Stronger bullish signal required
+            q_values_np[2] = -1e9  # Mask Sell when strongly bullish
+        elif signal < -0.35:  # Stronger bearish signal required
+            q_values_np[1] = -1e9  # Mask Buy when strongly bearish
         
         return np.argmax(q_values_np)
     
@@ -1017,153 +1024,113 @@ def train_agent(agent: TradingAgent, env: TradingEnvironment, df_train: pd.DataF
                 )
             )
             
-            # Add price line
-            fig.add_trace(
-                go.Scatter(
-                    x=list(range(len(prices))),
-                    y=prices,
-                    mode="lines",
-                    name="AUDUSD Price",
-                    line=dict(color='blue', width=1),
-                    showlegend=True
-                ),
-                row=1, col=1
-            )
-            
-            # P2: Auto-scale marker size based on trade count
-            marker_size = max(6, 12 - len(trades) // 300)
-            
-            # Add color-coded entry markers
-            # Winning long trades (green)
-            if any(e for e in win_entries if e[4] == 1):
-                win_long_entries = [e for e in win_entries if e[4] == 1]
-                fig.add_trace(
-                    go.Scatter(
-                        x=[e[0] for e in win_long_entries],
-                        y=[e[1] for e in win_long_entries],
-                        mode="markers",
-                        marker_symbol="triangle-up",
-                        marker=dict(color="green", size=marker_size),  # P2: Dynamic size
-                        name="Win Long Entry",
-                        text=[f"Trade {e[2]+1}<br>P&L: ${e[3]:,.0f}" for e in win_long_entries],
-                        hovertemplate="<b>%{text}</b><br>Bar: %{x}<br>Price: %{y:.5f}<extra></extra>",
-                        showlegend=True
-                    ),
-                    row=1, col=1
-                )
-                
-            # Winning short trades (red)
-            if any(e for e in win_entries if e[4] == -1):
-                win_short_entries = [e for e in win_entries if e[4] == -1]
-                fig.add_trace(
-                    go.Scatter(
-                        x=[e[0] for e in win_short_entries],
-                        y=[e[1] for e in win_short_entries],
-                        mode="markers",
-                        marker_symbol="triangle-up",
-                        marker=dict(color="red", size=marker_size),  # P2: Dynamic size
-                        name="Win Short Entry",
-                        text=[f"Trade {e[2]+1}<br>P&L: ${e[3]:,.0f}" for e in win_short_entries],
-                        hovertemplate="<b>%{text}</b><br>Bar: %{x}<br>Price: %{y:.5f}<extra></extra>",
-                        showlegend=True
-                    ),
-                    row=1, col=1
-                )
-                
-            # Losing trades (grey)
-            if lose_entries:
-                fig.add_trace(
-                    go.Scatter(
-                        x=[e[0] for e in lose_entries],
-                        y=[e[1] for e in lose_entries],
-                        mode="markers",
-                        marker_symbol="triangle-up",
-                        marker=dict(color="grey", size=marker_size),  # P2: Dynamic size
-                        name="Loss Entry",
-                        text=[f"Trade {e[2]+1}<br>P&L: ${e[3]:,.0f}" for e in lose_entries],
-                        hovertemplate="<b>%{text}</b><br>Bar: %{x}<br>Price: %{y:.5f}<extra></extra>",
-                        showlegend=True
-                    ),
-                    row=1, col=1
-                )
-            
-            # Add color-coded exit markers
-            # Winning long trades (green)
-            if any(e for e in win_exits if e[4] == 1):
-                win_long_exits = [e for e in win_exits if e[4] == 1]
-                fig.add_trace(
-                    go.Scatter(
-                        x=[e[0] for e in win_long_exits],
-                        y=[e[1] for e in win_long_exits],
-                        mode="markers",
-                        marker_symbol="triangle-down",
-                        marker=dict(color="green", size=marker_size),  # P2: Dynamic size
-                        text=[f"Trade {e[2]+1}<br>P&L: ${e[3]:,.0f}" for e in win_long_exits],
-                        hovertemplate="<b>%{text}</b><br>Bar: %{x}<br>Price: %{y:.5f}<extra></extra>",
-                        showlegend=False
-                    ),
-                    row=1, col=1
-                )
-                
-            # Winning short trades (red)
-            if any(e for e in win_exits if e[4] == -1):
-                win_short_exits = [e for e in win_exits if e[4] == -1]
-                fig.add_trace(
-                    go.Scatter(
-                        x=[e[0] for e in win_short_exits],
-                        y=[e[1] for e in win_short_exits],
-                        mode="markers",
-                        marker_symbol="triangle-down",
-                        marker=dict(color="red", size=marker_size),  # P2: Dynamic size
-                        text=[f"Trade {e[2]+1}<br>P&L: ${e[3]:,.0f}" for e in win_short_exits],
-                        hovertemplate="<b>%{text}</b><br>Bar: %{x}<br>Price: %{y:.5f}<extra></extra>",
-                        showlegend=False
-                    ),
-                    row=1, col=1
-                )
-                
-            # Losing trades (grey)
-            if lose_exits:
-                fig.add_trace(
-                    go.Scatter(
-                        x=[e[0] for e in lose_exits],
-                        y=[e[1] for e in lose_exits],
-                        mode="markers",
-                        marker_symbol="triangle-down",
-                        marker=dict(color="grey", size=marker_size),  # P2: Dynamic size
-                        text=[f"Trade {e[2]+1}<br>P&L: ${e[3]:,.0f}" for e in lose_exits],
-                        hovertemplate="<b>%{text}</b><br>Bar: %{x}<br>Price: %{y:.5f}<extra></extra>",
-                        showlegend=False
-                    ),
-                    row=1, col=1
-                )
-            
-            # Add position size and direction
+            # --- POSITION SIZE (row 2) - Added first with ultra-light fill ---
             if position_history:
                 bars = [p['bar'] for p in position_history]
                 sizes = [p['size'] for p in position_history]
                 
-                # Create step plot for position with toned-down fill (P0)
                 fig.add_trace(
                     go.Scatter(
                         x=bars,
                         y=sizes,
                         mode="lines",
-                        line=dict(shape='hv', width=1, color='green'),  # P0: Thinner line
-                        name="Position",
+                        line=dict(shape='hv', width=1, color='green'),
                         fill='tozeroy',
-                        fillcolor='rgba(0,200,0,0.15)',  # P0: Much more transparent fill
-                        hovertemplate="Bar: %{x}<br>Lots: %{y:,.0f}<br>%{text}<extra></extra>",  # P3: Better template
+                        fillcolor='rgba(0,200,0,0.05)',  # 5% opacity so it never hides anything
+                        name="Position size",
+                        showlegend=False,
+                        hovertemplate="Bar: %{x}<br>Lots: %{y:,.0f}<br>%{text}<extra></extra>",
                         text=['Long' if p['direction'] > 0 else 'Short' if p['direction'] < 0 else 'Flat' 
-                              for p in position_history],
-                        showlegend=False,  # P2: Avoid legend duplication
-                        opacity=0.95  # P0: Slight transparency
+                              for p in position_history]
                     ),
                     row=2, col=1
                 )
                 
                 # Add zero line for reference
                 fig.add_hline(y=0, line_dash="dash", line_color="gray", opacity=0.5, row=2, col=1)
+            
+            # Add price line (now added after position to ensure it's on top)
+            fig.add_trace(
+                go.Scatter(
+                    x=list(range(len(prices))),
+                    y=prices,
+                    mode="lines",
+                    name="Price",
+                    line=dict(width=1, color='royalblue'),
+                    showlegend=True
+                ),
+                row=1, col=1
+            )
+            
+            # Removed unused marker_size variable - using fixed size of 8 in markers
+            
+            # ---------- ENTRY MARKERS (row 1) ----------
+            # LONG entry ▲ green
+            long_entries = [e for e in win_entries + lose_entries if e[4] == 1]
+            if long_entries:
+                fig.add_trace(
+                    go.Scatter(
+                        x=[e[0] for e in long_entries],
+                        y=[e[1] for e in long_entries],
+                        mode="markers",
+                        marker=dict(symbol="triangle-up", size=8, color="green"),
+                        name="Long entry",
+                        showlegend=True,
+                        hovertemplate="Long entry<br>Bar: %{x}<br>Price: %{y:.5f}<extra></extra>",
+                    ),
+                    row=1, col=1
+                )
+                
+            # SHORT entry ▼ red
+            short_entries = [e for e in win_entries + lose_entries if e[4] == -1]
+            if short_entries:
+                fig.add_trace(
+                    go.Scatter(
+                        x=[e[0] for e in short_entries],
+                        y=[e[1] for e in short_entries],
+                        mode="markers",
+                        marker=dict(symbol="triangle-down", size=8, color="red"),
+                        name="Short entry",
+                        showlegend=True,
+                        hovertemplate="Short entry<br>Bar: %{x}<br>Price: %{y:.5f}<extra></extra>",
+                    ),
+                    row=1, col=1
+                )
+                
+            
+            # ---------- EXIT MARKERS (row 1) ----------
+            # LONG exit ▼ same colour as entry
+            long_exits = [e for e in win_exits + lose_exits if e[4] == 1]
+            if long_exits:
+                fig.add_trace(
+                    go.Scatter(
+                        x=[e[0] for e in long_exits],
+                        y=[e[1] for e in long_exits],
+                        mode="markers",
+                        marker=dict(symbol="triangle-down", size=8, color="green"),
+                        name="Long exit",
+                        showlegend=False,
+                        hovertemplate="Long exit<br>Bar: %{x}<br>Price: %{y:.5f}<extra></extra>",
+                    ),
+                    row=1, col=1
+                )
+                
+            # SHORT exit ▲
+            short_exits = [e for e in win_exits + lose_exits if e[4] == -1]
+            if short_exits:
+                fig.add_trace(
+                    go.Scatter(
+                        x=[e[0] for e in short_exits],
+                        y=[e[1] for e in short_exits],
+                        mode="markers",
+                        marker=dict(symbol="triangle-up", size=8, color="red"),
+                        name="Short exit",
+                        showlegend=False,
+                        hovertemplate="Short exit<br>Bar: %{x}<br>Price: %{y:.5f}<extra></extra>",
+                    ),
+                    row=1, col=1
+                )
+                
             
             # Add per-trade P&L bars with downsampling if needed (P1)
             if trades:
@@ -1323,7 +1290,7 @@ def main(fast_mode: bool = False):
     # Start training
     print("\nStarting training...")
     episodes = 10 if fast_mode else Config.EPISODES
-    episode_rewards, episode_profits, episode_sharpes = train_agent(
+    _, episode_profits, episode_sharpes = train_agent(
         agent, env, df_train, Config.WINDOW_SIZE, episodes, fast_mode
     )
     
