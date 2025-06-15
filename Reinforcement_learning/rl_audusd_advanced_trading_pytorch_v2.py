@@ -90,7 +90,7 @@ class Config:
     GAMMA = 0.995  # Higher for long-term
     EPSILON = 1.0
     EPSILON_MIN = 0.01
-    EPSILON_DECAY = 0.999985  # Slower per-step decay (was 0.9995)
+    EPSILON_DECAY = 0.99975  # Slower per-step decay (was 0.9995)
     
     # Trading Parameters - USD based with 1M lots
     INITIAL_BALANCE = 1_000_000  # Start with USD 1M
@@ -813,6 +813,9 @@ def train_agent(agent: TradingAgent, env: TradingEnvironment, df_train: pd.DataF
         state = env.get_state(start_idx, window_size)
         total_reward = 0
         
+        # Track position history for visualization
+        position_history = []
+        
         # Training loop
         pbar = tqdm(range(start_idx, end_idx - 1), 
                    desc=f"Episode {episode+1}/{episodes}")
@@ -824,6 +827,20 @@ def train_agent(agent: TradingAgent, env: TradingEnvironment, df_train: pd.DataF
             # Execute action
             reward, info = env.execute_action(action, t)
             total_reward += reward
+            
+            # Track position for visualization
+            if env.position:
+                position_history.append({
+                    'bar': t - start_idx,
+                    'size': env.position['size'] * env.position['direction'],
+                    'direction': env.position['direction']
+                })
+            else:
+                position_history.append({
+                    'bar': t - start_idx,
+                    'size': 0,
+                    'direction': 0
+                })
             
             # Get next state
             next_state = env.get_state(t + 1, window_size)
@@ -939,14 +956,15 @@ def train_agent(agent: TradingAgent, env: TradingEnvironment, df_train: pd.DataF
                 if 0 <= exit_idx < len(prices):
                     exit_indices.append(exit_idx)
             
-            # Create 2-row subplot: price/trades on top, cumulative PnL below
+            # Create 3-row subplot: price/trades on top, position in middle, cumulative PnL at bottom
             fig = make_subplots(
-                rows=2, cols=1,
+                rows=3, cols=1,
                 shared_xaxes=True,
-                row_heights=[0.7, 0.3],
+                row_heights=[0.5, 0.25, 0.25],
                 vertical_spacing=0.05,
                 subplot_titles=(
                     f"Episode {episode+1} - Price & Trades",
+                    "Position Size & Direction",
                     "Cumulative P&L (USD)"
                 )
             )
@@ -995,6 +1013,31 @@ def train_agent(agent: TradingAgent, env: TradingEnvironment, df_train: pd.DataF
                     row=1, col=1
                 )
             
+            # Add position size and direction
+            if position_history:
+                bars = [p['bar'] for p in position_history]
+                sizes = [p['size'] for p in position_history]
+                
+                # Create step plot for position
+                fig.add_trace(
+                    go.Scatter(
+                        x=bars,
+                        y=sizes,
+                        mode="lines",
+                        line=dict(shape='hv', width=2),  # Horizontal-vertical steps
+                        name="Position",
+                        fill='tozeroy',
+                        fillcolor='rgba(0,0,255,0.1)',
+                        hovertemplate="Bar: %{x}<br>Position: %{y:,.0f}<br>Direction: %{text}<extra></extra>",
+                        text=['Long' if p['direction'] > 0 else 'Short' if p['direction'] < 0 else 'Flat' 
+                              for p in position_history]
+                    ),
+                    row=2, col=1
+                )
+                
+                # Add zero line for reference
+                fig.add_hline(y=0, line_dash="dash", line_color="gray", opacity=0.5, row=2, col=1)
+            
             # Add cumulative P&L from equity curve
             if len(env.equity_curve) > 0:
                 cum_pnl = np.array(env.equity_curve) - env.equity_curve[0]
@@ -1009,12 +1052,12 @@ def train_agent(agent: TradingAgent, env: TradingEnvironment, df_train: pd.DataF
                         fillcolor='rgba(0,128,0,0.1)' if cum_pnl[-1] > 0 else 'rgba(128,0,0,0.1)',
                         hovertemplate="Bar: %{x}<br>P&L: $%{y:,.0f}<extra></extra>"
                     ),
-                    row=2, col=1
+                    row=3, col=1
                 )
             
             # Update layout
             fig.update_layout(
-                height=700,
+                height=900,  # Increased height for 3 subplots
                 width=1200,
                 title_text=f"Episode {episode+1}: P&L ${final_profit_usd:,.0f} ({final_profit_pct:.1f}%) | Sharpe: {sharpe:.2f} | Trades: {len(trades)}",
                 showlegend=True,
@@ -1023,9 +1066,10 @@ def train_agent(agent: TradingAgent, env: TradingEnvironment, df_train: pd.DataF
             )
             
             # Update axes
-            fig.update_xaxes(title_text="Time (bars)", row=2, col=1)
+            fig.update_xaxes(title_text="Time (bars)", row=3, col=1)
             fig.update_yaxes(title_text="Price", row=1, col=1)
-            fig.update_yaxes(title_text="P&L (USD)", row=2, col=1)
+            fig.update_yaxes(title_text="Position Size", row=2, col=1)
+            fig.update_yaxes(title_text="P&L (USD)", row=3, col=1)
             
             # Save HTML asynchronously
             executor.submit(async_save_html, fig, f'plots/episode_{episode+1:03d}.html')

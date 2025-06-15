@@ -6,9 +6,10 @@ Replaced static matplotlib plots with fully interactive Plotly HTML charts for e
 
 ## Key Features
 
-### 1. Two-Row Subplot Layout
-- **Top Panel (70%)**: AUDUSD price with entry/exit markers
-- **Bottom Panel (30%)**: Cumulative P&L in USD
+### 1. Three-Row Subplot Layout
+- **Top Panel (50%)**: AUDUSD price with entry/exit markers
+- **Middle Panel (25%)**: Position size and direction (Long/Short/Flat)
+- **Bottom Panel (25%)**: Cumulative P&L in USD
 
 ### 2. Interactive Elements
 - **Zoom & Pan**: Click and drag to zoom into specific time periods
@@ -19,6 +20,8 @@ Replaced static matplotlib plots with fully interactive Plotly HTML charts for e
 ### 3. Visual Enhancements
 - **Entry Markers**: Green triangles (▲) with hover labels
 - **Exit Markers**: Red triangles (▼) with hover labels
+- **Position Visualization**: Step plot showing exact position size (1M units)
+- **Position Fill**: Blue shaded area for position exposure
 - **P&L Coloring**: Green for profit, red for loss
 - **Fill Area**: Shaded area under P&L curve
 
@@ -38,16 +41,18 @@ from plotly.subplots import make_subplots
 
 ### Chart Generation (Every 5th Episode)
 ```python
-# Create 2-row subplot
+# Create 3-row subplot
 fig = make_subplots(
-    rows=2, cols=1,
+    rows=3, cols=1,
     shared_xaxes=True,
-    row_heights=[0.7, 0.3],
+    row_heights=[0.5, 0.25, 0.25],
     vertical_spacing=0.05,
-    subplot_titles=("Episode X - Price & Trades", "Cumulative P&L (USD)")
+    subplot_titles=("Episode X - Price & Trades", 
+                    "Position Size & Direction",
+                    "Cumulative P&L (USD)")
 )
 
-# Add traces: price line, entry/exit markers, cumulative P&L
+# Add traces: price line, entry/exit markers, position, cumulative P&L
 # Save as HTML
 fig.write_html(f'plots/episode_{episode+1:03d}.html')
 ```
@@ -90,6 +95,7 @@ plots/
 - **Price Line**: Bar number, AUDUSD price
 - **Entry Marker**: "Entry 1", Bar: 1234, Price: 0.68234
 - **Exit Marker**: "Exit 1", Bar: 1456, Price: 0.68567
+- **Position Line**: Bar: 1500, Position: 1,000,000, Direction: Long
 - **P&L Line**: Bar: 1500, P&L: $12,345
 
 ## Future Enhancements
