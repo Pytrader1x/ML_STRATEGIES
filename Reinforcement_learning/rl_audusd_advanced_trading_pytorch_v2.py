@@ -975,11 +975,11 @@ def train_agent(agent: TradingAgent, env: TradingEnvironment, df_train: pd.DataF
                     else:
                         lose_exits.append((exit_idx, prices[exit_idx], i, trade['pnl_usd'], trade['direction']))
             
-            # Create 4-row subplot
+            # Create 4-row subplot with better proportions
             fig = make_subplots(
                 rows=4, cols=1,
                 shared_xaxes=True,
-                row_heights=[0.45, 0.2, 0.15, 0.2],
+                row_heights=[0.4, 0.15, 0.15, 0.3],  # P1: Better proportions
                 vertical_spacing=0.03,
                 subplot_titles=(
                     f"Episode {episode+1} - Price & Trades",
@@ -1002,6 +1002,9 @@ def train_agent(agent: TradingAgent, env: TradingEnvironment, df_train: pd.DataF
                 row=1, col=1
             )
             
+            # P2: Auto-scale marker size based on trade count
+            marker_size = max(6, 12 - len(trades) // 300)
+            
             # Add color-coded entry markers
             # Winning long trades (green)
             if any(e for e in win_entries if e[4] == 1):
@@ -1012,7 +1015,7 @@ def train_agent(agent: TradingAgent, env: TradingEnvironment, df_train: pd.DataF
                         y=[e[1] for e in win_long_entries],
                         mode="markers",
                         marker_symbol="triangle-up",
-                        marker=dict(color="green", size=12),
+                        marker=dict(color="green", size=marker_size),  # P2: Dynamic size
                         name="Win Long Entry",
                         text=[f"Trade {e[2]+1}<br>P&L: ${e[3]:,.0f}" for e in win_long_entries],
                         hovertemplate="<b>%{text}</b><br>Bar: %{x}<br>Price: %{y:.5f}<extra></extra>",
@@ -1030,7 +1033,7 @@ def train_agent(agent: TradingAgent, env: TradingEnvironment, df_train: pd.DataF
                         y=[e[1] for e in win_short_entries],
                         mode="markers",
                         marker_symbol="triangle-up",
-                        marker=dict(color="red", size=12),
+                        marker=dict(color="red", size=marker_size),  # P2: Dynamic size
                         name="Win Short Entry",
                         text=[f"Trade {e[2]+1}<br>P&L: ${e[3]:,.0f}" for e in win_short_entries],
                         hovertemplate="<b>%{text}</b><br>Bar: %{x}<br>Price: %{y:.5f}<extra></extra>",
@@ -1047,7 +1050,7 @@ def train_agent(agent: TradingAgent, env: TradingEnvironment, df_train: pd.DataF
                         y=[e[1] for e in lose_entries],
                         mode="markers",
                         marker_symbol="triangle-up",
-                        marker=dict(color="grey", size=12),
+                        marker=dict(color="grey", size=marker_size),  # P2: Dynamic size
                         name="Loss Entry",
                         text=[f"Trade {e[2]+1}<br>P&L: ${e[3]:,.0f}" for e in lose_entries],
                         hovertemplate="<b>%{text}</b><br>Bar: %{x}<br>Price: %{y:.5f}<extra></extra>",
@@ -1066,7 +1069,7 @@ def train_agent(agent: TradingAgent, env: TradingEnvironment, df_train: pd.DataF
                         y=[e[1] for e in win_long_exits],
                         mode="markers",
                         marker_symbol="triangle-down",
-                        marker=dict(color="green", size=12),
+                        marker=dict(color="green", size=marker_size),  # P2: Dynamic size
                         text=[f"Trade {e[2]+1}<br>P&L: ${e[3]:,.0f}" for e in win_long_exits],
                         hovertemplate="<b>%{text}</b><br>Bar: %{x}<br>Price: %{y:.5f}<extra></extra>",
                         showlegend=False
@@ -1083,7 +1086,7 @@ def train_agent(agent: TradingAgent, env: TradingEnvironment, df_train: pd.DataF
                         y=[e[1] for e in win_short_exits],
                         mode="markers",
                         marker_symbol="triangle-down",
-                        marker=dict(color="red", size=12),
+                        marker=dict(color="red", size=marker_size),  # P2: Dynamic size
                         text=[f"Trade {e[2]+1}<br>P&L: ${e[3]:,.0f}" for e in win_short_exits],
                         hovertemplate="<b>%{text}</b><br>Bar: %{x}<br>Price: %{y:.5f}<extra></extra>",
                         showlegend=False
@@ -1099,7 +1102,7 @@ def train_agent(agent: TradingAgent, env: TradingEnvironment, df_train: pd.DataF
                         y=[e[1] for e in lose_exits],
                         mode="markers",
                         marker_symbol="triangle-down",
-                        marker=dict(color="grey", size=12),
+                        marker=dict(color="grey", size=marker_size),  # P2: Dynamic size
                         text=[f"Trade {e[2]+1}<br>P&L: ${e[3]:,.0f}" for e in lose_exits],
                         hovertemplate="<b>%{text}</b><br>Bar: %{x}<br>Price: %{y:.5f}<extra></extra>",
                         showlegend=False
@@ -1112,20 +1115,21 @@ def train_agent(agent: TradingAgent, env: TradingEnvironment, df_train: pd.DataF
                 bars = [p['bar'] for p in position_history]
                 sizes = [p['size'] for p in position_history]
                 
-                # Create step plot for position
+                # Create step plot for position with toned-down fill (P0)
                 fig.add_trace(
                     go.Scatter(
                         x=bars,
                         y=sizes,
                         mode="lines",
-                        line=dict(shape='hv', width=2),  # Horizontal-vertical steps
+                        line=dict(shape='hv', width=1, color='green'),  # P0: Thinner line
                         name="Position",
                         fill='tozeroy',
-                        fillcolor='rgba(0,0,255,0.1)',
-                        hovertemplate="Bar: %{x}<br>Position: %{y:,.0f}<br>Direction: %{text}<extra></extra>",
+                        fillcolor='rgba(0,200,0,0.15)',  # P0: Much more transparent fill
+                        hovertemplate="Bar: %{x}<br>Lots: %{y:,.0f}<br>%{text}<extra></extra>",  # P3: Better template
                         text=['Long' if p['direction'] > 0 else 'Short' if p['direction'] < 0 else 'Flat' 
                               for p in position_history],
-                        showlegend=True
+                        showlegend=False,  # P2: Avoid legend duplication
+                        opacity=0.95  # P0: Slight transparency
                     ),
                     row=2, col=1
                 )
@@ -1133,18 +1137,31 @@ def train_agent(agent: TradingAgent, env: TradingEnvironment, df_train: pd.DataF
                 # Add zero line for reference
                 fig.add_hline(y=0, line_dash="dash", line_color="gray", opacity=0.5, row=2, col=1)
             
-            # Add per-trade P&L bars
+            # Add per-trade P&L bars with downsampling if needed (P1)
             if trades:
                 pnl_list = [t['pnl_usd'] for t in trades]
-                colors = ['darkgreen' if p > 0 else 'darkred' for p in pnl_list]
+                
+                # P1: Downsample if too many trades
+                skip = max(1, len(pnl_list) // 500)
+                if skip > 1:
+                    pnl_display = pnl_list[::skip]
+                    indices = list(range(0, len(pnl_list), skip))
+                else:
+                    pnl_display = pnl_list
+                    indices = list(range(len(pnl_list)))
+                
+                colors = ['darkgreen' if p > 0 else 'darkred' for p in pnl_display]
                 
                 fig.add_trace(
                     go.Bar(
-                        x=list(range(len(pnl_list))),
-                        y=pnl_list,
+                        x=indices,
+                        y=pnl_display,
                         marker_color=colors,
+                        marker_line_width=0,  # P1: No border lines
+                        width=1,  # P1: Fixed width
+                        opacity=0.6,  # P1: Cap opacity
                         name="Trade P&L",
-                        text=[f"${p:,.0f}" for p in pnl_list],
+                        text=[f"${p:,.0f}" for p in pnl_display],
                         hovertemplate="Trade #%{x}<br>P&L: %{text}<extra></extra>",
                         showlegend=True
                     ),
@@ -1197,8 +1214,8 @@ def train_agent(agent: TradingAgent, env: TradingEnvironment, df_train: pd.DataF
             
             # Update layout
             fig.update_layout(
-                height=1000,  # Increased height for 4 subplots
-                width=1200,
+                height=1000,
+                width=1600,  # P2: Wider for 4K screens
                 title_text=f"Episode {episode+1}: P&L ${final_profit_usd:,.0f} ({final_profit_pct:.1f}%) | Sharpe: {sharpe:.2f} | Trades: {len(trades)}",
                 showlegend=True,
                 hovermode='x unified',
@@ -1212,12 +1229,22 @@ def train_agent(agent: TradingAgent, env: TradingEnvironment, df_train: pd.DataF
                 )
             )
             
-            # Update axes
+            # P0: Clamp price y-axis to actual price range
+            price_margin = (prices.max() - prices.min()) * 0.02  # 2% margin
+            fig.update_yaxes(
+                range=[prices.min() - price_margin, prices.max() + price_margin],
+                title_text="Price",
+                row=1, col=1
+            )
+            
+            # Update other axes
             fig.update_xaxes(title_text="Time (bars)", row=4, col=1)
-            fig.update_yaxes(title_text="Price", row=1, col=1)
             fig.update_yaxes(title_text="Position Size", row=2, col=1)
             fig.update_yaxes(title_text="Trade P&L ($)", row=3, col=1)
             fig.update_yaxes(title_text="Cumulative P&L ($)", row=4, col=1)
+            
+            # P0: Ensure position layer is below markers
+            fig.update_traces(selector=dict(name="Position"), layer="below")
             
             # Save HTML asynchronously
             executor.submit(async_save_html, fig, f'plots/episode_{episode+1:03d}.html')
