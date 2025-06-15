@@ -1,0 +1,1134 @@
+"""
+Advanced Reinforcement Learning Trading Agent for AUDUSD (PyTorch Version 2.0)
+Major improvements for consistent profitability
+"""
+
+# %% Load Libraries
+import os
+import sys
+import torch
+import torch.nn as nn
+import torch.optim as optim
+import torch.nn.functional as F
+import random
+import numpy as np
+import pandas as pd
+import matplotlib
+matplotlib.use('Agg')  # Non-interactive backend for speed
+import matplotlib.pyplot as plt
+from collections import deque, namedtuple
+from tqdm import tqdm
+from typing import List, Tuple, Dict, Optional
+from concurrent.futures import ThreadPoolExecutor
+import warnings
+warnings.filterwarnings('ignore')
+
+# Add parent directory to path for imports
+sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
+# Import custom modules
+from technical_indicators_custom import TIC
+
+# For reproducibility
+torch.manual_seed(42)
+np.random.seed(42)
+random.seed(42)
+
+# For reproducibility only - no threading optimizations
+
+# Check device availability - prioritize MPS for Mac
+if torch.backends.mps.is_available():
+    device = torch.device("mps")
+    print("Using Apple MPS acceleration")
+elif torch.cuda.is_available():
+    device = torch.device("cuda")
+    print("Using CUDA acceleration")
+else:
+    device = torch.device("cpu")
+    print("Using CPU")
+
+# JIT-compiled state builder for performance
+@torch.jit.script
+def build_state(window: torch.Tensor, pos_info: torch.Tensor) -> torch.Tensor:
+    """JIT-compiled state builder to reduce Python overhead"""
+    return torch.cat([window.flatten(), pos_info], dim=0)
+
+# %% Configuration
+class Config:
+    """Enhanced configuration with adaptive parameters"""
+    # Data
+    CURRENCY_PAIR = 'AUDUSD'
+    TRAIN_TEST_SPLIT = 0.8
+    
+    # Indicators
+    NEUROTREND_FAST = 10
+    NEUROTREND_SLOW = 50
+    MARKET_BIAS_LEN1 = 350
+    MARKET_BIAS_LEN2 = 30
+    
+    # RL Parameters - IMPROVED
+    WINDOW_SIZE = 50  # Larger window for better context
+    ACTION_SIZE = 3   # Clean action space: 0=Hold, 1=Buy, 2=Sell
+    NUM_ENVS = 2      # Number of parallel environments (optimized for MPS)
+    
+    # Model - ENHANCED
+    HIDDEN_LAYER_1 = 512
+    HIDDEN_LAYER_2 = 256
+    HIDDEN_LAYER_3 = 128
+    LEARNING_RATE = 0.0001  # Lower learning rate
+    
+    # Training - OPTIMIZED
+    EPISODES = 200
+    BATCH_SIZE = 512  # Optimal batch size for MPS
+    MEMORY_SIZE = 50000
+    UPDATE_TARGET_EVERY = 100  # Steps
+    
+    # Window sampling
+    MIN_WINDOW_SIZE = 10000  # Larger windows
+    MAX_WINDOW_SIZE = 30000
+    
+    # RL Hyperparameters - TUNED
+    GAMMA = 0.995  # Higher for long-term
+    EPSILON = 1.0
+    EPSILON_MIN = 0.01
+    EPSILON_DECAY = 0.99995  # Slower per-step decay (was 0.9995)
+    
+    # Trading Parameters - USD based with 1M lots
+    INITIAL_BALANCE = 1_000_000  # Start with USD 1M
+    POSITION_SIZE = 1_000_000    # Always trade 1M AUDUSD units
+    MAX_POSITIONS = 1            # One position at a time
+    
+    # Risk Management - ADAPTIVE
+    BASE_SL_ATR_MULT = 2.0  # Stop loss = 2 * ATR
+    BASE_TP_ATR_MULT = 3.0  # Take profit = 3 * ATR
+    MIN_RR_RATIO = 1.5      # Minimum risk/reward ratio
+
+# %% Enhanced Data Loader
+class DataLoader:
+    """Enhanced data loader with better feature engineering"""
+    
+    def __init__(self, currency_pair: str):
+        self.currency_pair = currency_pair
+        self.df = None
+        self.feature_cols = []
+        
+    def load_data(self) -> pd.DataFrame:
+        """Load and prepare data"""
+        data_path = 'data' if os.path.exists('data') else '../data'
+        file_path = os.path.join(data_path, f'{self.currency_pair}_MASTER_15M.csv')
+        
+        print(f"Loading {self.currency_pair} data...")
+        self.df = pd.read_csv(file_path)
+        self.df['DateTime'] = pd.to_datetime(self.df['DateTime'])
+        self.df.set_index('DateTime', inplace=True)
+        
+        # Calculate returns and volatility
+        self.df['Returns'] = self.df['Close'].pct_change()
+        self.df['Log_Returns'] = np.log(self.df['Close'] / self.df['Close'].shift(1))
+        
+        print(f"Loaded {len(self.df)} rows of data")
+        return self.df
+    
+    def add_technical_indicators(self) -> pd.DataFrame:
+        """Add comprehensive technical indicators"""
+        print("\nAdding technical indicators...")
+        
+        # Price action features
+        self.df['High_Low_Pct'] = (self.df['High'] - self.df['Low']) / self.df['Close']
+        self.df['Close_Open_Pct'] = (self.df['Close'] - self.df['Open']) / self.df['Open']
+        
+        # Volatility
+        self.df['ATR'] = self.calculate_atr(14)
+        self.df['ATR_Pct'] = self.df['ATR'] / self.df['Close']
+        
+        # Moving averages
+        self.df['SMA_20'] = self.df['Close'].rolling(20).mean()
+        self.df['SMA_50'] = self.df['Close'].rolling(50).mean()
+        self.df['SMA_200'] = self.df['Close'].rolling(200).mean()
+        
+        # Price relative to MAs
+        self.df['Close_to_SMA20'] = (self.df['Close'] - self.df['SMA_20']) / self.df['SMA_20']
+        self.df['Close_to_SMA50'] = (self.df['Close'] - self.df['SMA_50']) / self.df['SMA_50']
+        
+        # Momentum
+        self.df['RSI'] = self.calculate_rsi(14)
+        self.df['RSI_Signal'] = np.where(self.df['RSI'] > 70, -1, 
+                                       np.where(self.df['RSI'] < 30, 1, 0))
+        
+        # Add NeuroTrend Intelligent
+        print("- Adding NeuroTrend Intelligent...")
+        self.df = TIC.add_neuro_trend_intelligent(
+            self.df,
+            base_fast=Config.NEUROTREND_FAST,
+            base_slow=Config.NEUROTREND_SLOW,
+            confirm_bars=3,
+            dynamic_thresholds=True,
+            enable_diagnostics=False
+        )
+        
+        # Create trading signals from NeuroTrend
+        self.df['NTI_Signal'] = np.where(
+            (self.df['NTI_Direction'] > 0) & (self.df['NTI_Confidence'] > 0.7), 1,
+            np.where((self.df['NTI_Direction'] < 0) & (self.df['NTI_Confidence'] > 0.7), -1, 0)
+        )
+        
+        # Add Market Bias
+        print("- Adding Market Bias...")
+        self.df = TIC.add_market_bias(
+            self.df,
+            ha_len=Config.MARKET_BIAS_LEN1,
+            ha_len2=Config.MARKET_BIAS_LEN2
+        )
+        
+        # Add Intelligent Chop
+        print("- Adding Intelligent Chop...")
+        self.df = TIC.add_intelligent_chop(self.df)
+        
+        # Market regime from Intelligent Chop
+        self.df['Trending'] = np.where(self.df['IC_Regime'].isin([1, -1]), 1, 0)
+        
+        # Composite signal
+        self.df['Composite_Signal'] = (
+            self.df['NTI_Signal'] * 0.4 +
+            np.sign(self.df['MB_Bias']) * 0.3 +
+            self.df['RSI_Signal'] * 0.3
+        )
+        
+        # Drop NaN values
+        self.df.dropna(inplace=True)
+        
+        print(f"Indicators added. Final shape: {self.df.shape}")
+        return self.df
+    
+    def calculate_atr(self, period: int) -> pd.Series:
+        """Calculate Average True Range"""
+        high_low = self.df['High'] - self.df['Low']
+        high_close = np.abs(self.df['High'] - self.df['Close'].shift())
+        low_close = np.abs(self.df['Low'] - self.df['Close'].shift())
+        
+        true_range = pd.concat([high_low, high_close, low_close], axis=1).max(axis=1)
+        return true_range.rolling(period).mean()
+    
+    def calculate_rsi(self, period: int) -> pd.Series:
+        """Calculate RSI"""
+        delta = self.df['Close'].diff()
+        gain = (delta.where(delta > 0, 0)).rolling(window=period).mean()
+        loss = (-delta.where(delta < 0, 0)).rolling(window=period).mean()
+        
+        rs = gain / loss
+        rsi = 100 - (100 / (1 + rs))
+        return rsi
+    
+    def prepare_features(self) -> List[str]:
+        """Select and normalize features for the model"""
+        # Core features
+        self.feature_cols = [
+            # Price action
+            'Close', 'Returns', 'High_Low_Pct', 'Close_Open_Pct',
+            'ATR_Pct', 'Close_to_SMA20', 'Close_to_SMA50',
+            
+            # Indicators
+            'RSI', 'NTI_Direction', 'NTI_Confidence', 'NTI_SlopePower',
+            'NTI_ReversalRisk', 'MB_Bias', 'IC_Regime', 'IC_Confidence',
+            'IC_Signal', 'Trending', 'Composite_Signal'
+        ]
+        
+        # Normalize features
+        print("\nNormalizing features...")
+        for col in self.feature_cols:
+            if col in self.df.columns:
+                # Z-score normalization
+                self.df[f'{col}_norm'] = (
+                    (self.df[col] - self.df[col].rolling(200).mean()) / 
+                    (self.df[col].rolling(200).std() + 1e-8)
+                ).fillna(0)
+        
+        return [f'{col}_norm' for col in self.feature_cols if col in self.df.columns]
+    
+
+# %% Enhanced DQN Model
+class DuelingDQN(nn.Module):
+    """Enhanced Dueling DQN with Noisy Networks"""
+    
+    def __init__(self, state_size: int, action_size: int):
+        super(DuelingDQN, self).__init__()
+        
+        # Shared layers
+        self.fc1 = nn.Linear(state_size, Config.HIDDEN_LAYER_1)
+        self.bn1 = nn.BatchNorm1d(Config.HIDDEN_LAYER_1)
+        self.dropout1 = nn.Dropout(0.2)
+        
+        self.fc2 = nn.Linear(Config.HIDDEN_LAYER_1, Config.HIDDEN_LAYER_2)
+        self.bn2 = nn.BatchNorm1d(Config.HIDDEN_LAYER_2)
+        self.dropout2 = nn.Dropout(0.2)
+        
+        # Value stream
+        self.value_fc = nn.Linear(Config.HIDDEN_LAYER_2, Config.HIDDEN_LAYER_3)
+        self.value_out = nn.Linear(Config.HIDDEN_LAYER_3, 1)
+        
+        # Advantage stream
+        self.advantage_fc = nn.Linear(Config.HIDDEN_LAYER_2, Config.HIDDEN_LAYER_3)
+        self.advantage_out = nn.Linear(Config.HIDDEN_LAYER_3, action_size)
+        
+        # Noisy linear layers for exploration
+        self.noisy_std = 0.1
+        
+    def forward(self, x):
+        # Shared network
+        x = F.relu(self.bn1(self.fc1(x)))
+        x = self.dropout1(x)
+        x = F.relu(self.bn2(self.fc2(x)))
+        x = self.dropout2(x)
+        
+        # Value stream
+        value = F.relu(self.value_fc(x))
+        value = self.value_out(value)
+        
+        # Advantage stream
+        advantage = F.relu(self.advantage_fc(x))
+        advantage = self.advantage_out(advantage)
+        
+        # Combine streams
+        q_values = value + (advantage - advantage.mean(dim=1, keepdim=True))
+        
+        return q_values
+
+# %% Enhanced Trading Environment
+class TradingEnvironment:
+    """Improved trading environment with better position management"""
+    
+    def __init__(self, df: pd.DataFrame, feature_cols: List[str]):
+        self.df = df
+        self.feature_cols = feature_cols
+        self.equity_curve = []  # Track equity for proper Sharpe calculation
+        self.state_size = len(feature_cols) * Config.WINDOW_SIZE + 7
+        # Pre-convert feature data to tensor for fast access
+        self.feature_tensor = torch.from_numpy(df[feature_cols].values).float().to(device)
+        self.reset()
+        
+    def reset(self):
+        """Reset environment to initial state"""
+        self.balance = Config.INITIAL_BALANCE
+        self.initial_balance = Config.INITIAL_BALANCE
+        self.position = None  # Single position tracking
+        self.trade_history = []
+        self.current_step = 0
+        self.max_drawdown = 0
+        self.peak_balance = Config.INITIAL_BALANCE
+        self.equity_curve = [Config.INITIAL_BALANCE]  # Initialize equity curve
+        
+    def get_state(self, index: int, window_size: int) -> torch.Tensor:
+        """Get enhanced state representation - returns torch.Tensor on device"""
+        if index < window_size:
+            return torch.zeros(self.state_size, device=device)
+        
+        # Get windowed features directly from MPS tensor - no CPU transfer!
+        window = self.feature_tensor[index-window_size+1:index+1]  # [W, F] on MPS
+        
+        # Build position info tensor directly on device
+        pos_info = torch.tensor([
+            1.0 if self.position else 0.0,
+            self.position['unrealized_pnl'] / self.initial_balance if self.position else 0.0,
+            self.position['holding_time'] / 100.0 if self.position else 0.0,
+            (self.balance / self.initial_balance - 1.0),
+            self.max_drawdown,
+            len(self.trade_history) / 100.0,
+            self.get_win_rate()
+        ], device=device, dtype=torch.float32)
+        
+        # Use JIT-compiled state builder
+        state = build_state(window, pos_info)
+        return state
+    
+    def get_win_rate(self) -> float:
+        """Calculate current win rate"""
+        if not self.trade_history:
+            return 0.5
+        wins = sum(1 for t in self.trade_history if t['pnl'] > 0)
+        return wins / len(self.trade_history)
+    
+    def calculate_adaptive_sl_tp(self, entry_price: float, direction: int, 
+                                conservative: bool = False) -> Tuple[float, float]:
+        """Calculate adaptive SL/TP based on ATR and market conditions"""
+        current_atr = self.df['ATR'].iloc[self.current_step]
+        
+        # Adjust multipliers based on market regime
+        if self.df['Trending'].iloc[self.current_step] == 1:
+            # Trending market - wider stops, bigger targets
+            sl_mult = Config.BASE_SL_ATR_MULT * 1.2
+            tp_mult = Config.BASE_TP_ATR_MULT * 1.5
+        else:
+            # Ranging market - tighter stops
+            sl_mult = Config.BASE_SL_ATR_MULT * 0.8
+            tp_mult = Config.BASE_TP_ATR_MULT * 0.8
+        
+        if conservative:
+            sl_mult *= 0.7
+            tp_mult *= 0.7
+        
+        if direction == 1:  # Long
+            stop_loss = entry_price - (current_atr * sl_mult)
+            take_profit = entry_price + (current_atr * tp_mult)
+        else:  # Short
+            stop_loss = entry_price + (current_atr * sl_mult)
+            take_profit = entry_price - (current_atr * tp_mult)
+        
+        return stop_loss, take_profit
+    
+    def execute_action(self, action: int, index: int) -> Tuple[float, Dict]:
+        """Execute trading action with improved logic"""
+        self.current_step = index
+        current_price = self.df['Close'].iloc[index]
+        reward = 0
+        info = {'action': action, 'price': current_price}
+        
+        # Update existing position
+        if self.position:
+            self.position['unrealized_pnl'] = (
+                (current_price - self.position['entry_price']) * 
+                self.position['direction'] * self.position['size']
+            )
+            self.position['holding_time'] += 1
+            
+            # Check stop loss and take profit
+            if self.position['direction'] == 1:  # Long
+                if current_price <= self.position['stop_loss']:
+                    reward += self._close_position(current_price, 'stop_loss')
+                elif current_price >= self.position['take_profit']:
+                    reward += self._close_position(current_price, 'take_profit')
+            else:  # Short
+                if current_price >= self.position['stop_loss']:
+                    reward += self._close_position(current_price, 'stop_loss')
+                elif current_price <= self.position['take_profit']:
+                    reward += self._close_position(current_price, 'take_profit')
+        
+        # Execute new actions with simplified logic
+        if action == 0:  # Hold
+            # Small penalty for holding to encourage trading
+            reward -= 0.001
+            
+        elif action == 1:  # Buy
+            if not self.position:
+                # Open long position
+                stop_loss, take_profit = self.calculate_adaptive_sl_tp(
+                    current_price, 1, False
+                )
+                
+                self.position = {
+                    'entry_price': current_price,
+                    'size': Config.POSITION_SIZE,
+                    'direction': 1,
+                    'stop_loss': stop_loss,
+                    'take_profit': take_profit,
+                    'entry_index': index,
+                    'unrealized_pnl': 0,
+                    'holding_time': 0,
+                    'entry_signal_strength': self.df['Composite_Signal'].iloc[index]
+                }
+                
+                info['position_opened'] = 'long'
+                
+                # Immediate reward for good entry
+                if self.df['Composite_Signal'].iloc[index] > 0.5:
+                    reward += 0.01
+                    
+            elif self.position['direction'] == -1:
+                # Close short and open long
+                reward += self._close_position(current_price, 'manual')
+                
+                # Open long position
+                stop_loss, take_profit = self.calculate_adaptive_sl_tp(
+                    current_price, 1, False
+                )
+                
+                self.position = {
+                    'entry_price': current_price,
+                    'size': Config.POSITION_SIZE,
+                    'direction': 1,
+                    'stop_loss': stop_loss,
+                    'take_profit': take_profit,
+                    'entry_index': index,
+                    'unrealized_pnl': 0,
+                    'holding_time': 0,
+                    'entry_signal_strength': self.df['Composite_Signal'].iloc[index]
+                }
+                
+                info['position_opened'] = 'long'
+                    
+        elif action == 2:  # Sell
+            if not self.position:
+                # Open short position
+                stop_loss, take_profit = self.calculate_adaptive_sl_tp(
+                    current_price, -1, False
+                )
+                
+                self.position = {
+                    'entry_price': current_price,
+                    'size': Config.POSITION_SIZE,
+                    'direction': -1,
+                    'stop_loss': stop_loss,
+                    'take_profit': take_profit,
+                    'entry_index': index,
+                    'unrealized_pnl': 0,
+                    'holding_time': 0,
+                    'entry_signal_strength': self.df['Composite_Signal'].iloc[index]
+                }
+                
+                info['position_opened'] = 'short'
+                
+                # Immediate reward for good entry
+                if self.df['Composite_Signal'].iloc[index] < -0.5:
+                    reward += 0.01
+                    
+            elif self.position['direction'] == 1:
+                # Close long position (manual exit)
+                reward += self._close_position(current_price, 'manual')
+                
+                # Open short position
+                stop_loss, take_profit = self.calculate_adaptive_sl_tp(
+                    current_price, -1, False
+                )
+                
+                self.position = {
+                    'entry_price': current_price,
+                    'size': Config.POSITION_SIZE,
+                    'direction': -1,
+                    'stop_loss': stop_loss,
+                    'take_profit': take_profit,
+                    'entry_index': index,
+                    'unrealized_pnl': 0,
+                    'holding_time': 0,
+                    'entry_signal_strength': self.df['Composite_Signal'].iloc[index]
+                }
+                
+                info['position_opened'] = 'short'
+        
+        # Update metrics
+        self._update_metrics()
+        
+        # Track equity curve at each step
+        self.equity_curve.append(self.balance)
+        
+        # Add continuous reward shaping
+        if self.position:
+            # Reward for unrealized profit
+            reward += self.position['unrealized_pnl'] / self.initial_balance * 10
+            
+            # Penalty for holding too long
+            if self.position['holding_time'] > 100:
+                reward -= 0.002
+        
+        return reward, info
+    
+    def get_equity_curve(self) -> pd.Series:
+        """Get equity curve as pandas Series for Sharpe calculation"""
+        return pd.Series(self.equity_curve)
+    
+    def _check_entry_conditions(self, direction: int) -> bool:
+        """Check if entry conditions are met"""
+        # Get current signals
+        composite_signal = self.df['Composite_Signal'].iloc[self.current_step]
+        nti_confidence = self.df['NTI_Confidence'].iloc[self.current_step]
+        trending = self.df['Trending'].iloc[self.current_step]
+        
+        if direction == 1:  # Long
+            return (composite_signal > 0.3 and nti_confidence > 0.6) or \
+                   (composite_signal > 0.5 and trending == 1)
+        else:  # Short
+            return (composite_signal < -0.3 and nti_confidence > 0.6) or \
+                   (composite_signal < -0.5 and trending == 1)
+    
+    def _calculate_position_size(self, conservative: bool = False) -> float:
+        """Return fixed position size - always 1M units"""
+        return Config.POSITION_SIZE
+    
+    def _close_position(self, exit_price: float, exit_type: str) -> float:
+        """Close position and calculate reward"""
+        if not self.position:
+            return 0
+        
+        # Calculate P&L
+        if self.position['direction'] == 1:  # Long
+            pnl = (exit_price - self.position['entry_price']) * self.position['size']
+        else:  # Short
+            pnl = (self.position['entry_price'] - exit_price) * self.position['size']
+        
+        # With 1M units, pnl is already in USD
+        self.balance += pnl
+        
+        # Calculate reward
+        pnl_pct = pnl / self.initial_balance
+        
+        if exit_type == 'take_profit':
+            reward = pnl_pct * 100  # Large reward for hitting TP
+        elif exit_type == 'stop_loss':
+            reward = pnl_pct * 50  # Smaller penalty for SL (risk management is good)
+        else:
+            reward = pnl_pct * 75  # Manual exit
+        
+        # Bonus for good trades
+        if pnl > 0 and self.position['entry_signal_strength'] * self.position['direction'] > 0.5:
+            reward += 0.05  # Bonus for following signals
+        
+        # Record trade with enhanced metrics
+        self.trade_history.append({
+            'entry_price': self.position['entry_price'],
+            'exit_price': exit_price,
+            'direction': self.position['direction'],
+            'pnl': pnl,
+            'pnl_pct': pnl_pct,
+            'holding_time': self.position['holding_time'],
+            'exit_type': exit_type,
+            'tp_exit': exit_type == 'take_profit',
+            'sl_exit': exit_type == 'stop_loss',
+            'manual_exit': exit_type == 'manual',
+            'drawdown': self.max_drawdown,
+            'entry_index': self.position['entry_index']
+        })
+        
+        self.position = None
+        return reward
+    
+    def _update_metrics(self):
+        """Update performance metrics"""
+        # Update max drawdown
+        if self.balance > self.peak_balance:
+            self.peak_balance = self.balance
+        
+        drawdown = (self.peak_balance - self.balance) / self.peak_balance
+        self.max_drawdown = max(self.max_drawdown, drawdown)
+
+# %% Enhanced Trading Agent
+Experience = namedtuple('Experience', 
+    ['state', 'action', 'reward', 'next_state', 'done'])
+
+class PrioritizedReplayBuffer:
+    """Prioritized experience replay buffer"""
+    
+    def __init__(self, capacity: int, alpha: float = 0.6):
+        self.capacity = capacity
+        self.alpha = alpha
+        self.buffer = []
+        self.priorities = np.zeros(capacity, dtype=np.float32)
+        self.position = 0
+        
+    def push(self, experience: Experience):
+        """Add experience with maximum priority"""
+        max_priority = self.priorities.max() if self.buffer else 1.0
+        
+        if len(self.buffer) < self.capacity:
+            self.buffer.append(experience)
+        else:
+            self.buffer[self.position] = experience
+        
+        self.priorities[self.position] = max_priority
+        self.position = (self.position + 1) % self.capacity
+        
+    def sample(self, batch_size: int, beta: float = 0.4) -> Tuple:
+        """Sample batch with priority-based probabilities"""
+        if len(self.buffer) == self.capacity:
+            priorities = self.priorities
+        else:
+            priorities = self.priorities[:self.position]
+        
+        probabilities = priorities ** self.alpha
+        probabilities /= probabilities.sum()
+        
+        indices = np.random.choice(len(self.buffer), batch_size, p=probabilities)
+        experiences = [self.buffer[idx] for idx in indices]
+        
+        # Calculate importance sampling weights
+        total = len(self.buffer)
+        weights = (total * probabilities[indices]) ** (-beta)
+        weights /= weights.max()
+        
+        return experiences, indices, torch.FloatTensor(weights).to(device)
+    
+    def update_priorities(self, indices: List[int], priorities: np.ndarray):
+        """Update priorities based on TD error"""
+        for idx, priority in zip(indices, priorities):
+            self.priorities[idx] = priority + 1e-6
+
+class TradingAgent:
+    """Enhanced RL Trading Agent with advanced features"""
+    
+    def __init__(self, state_size: int, action_size: int):
+        self.state_size = state_size
+        self.action_size = action_size
+        self.memory = PrioritizedReplayBuffer(Config.MEMORY_SIZE)
+        
+        # RL parameters
+        self.gamma = Config.GAMMA
+        self.epsilon = Config.EPSILON
+        self.epsilon_min = Config.EPSILON_MIN
+        self.epsilon_decay = Config.EPSILON_DECAY
+        self.beta = 0.4  # For importance sampling
+        self.beta_increment = 0.001
+        
+        # Neural networks
+        self.q_network = DuelingDQN(state_size, action_size).to(device)
+        self.target_network = DuelingDQN(state_size, action_size).to(device)
+        self.update_target_model()
+        
+        # Optimizer
+        self.optimizer = optim.Adam(self.q_network.parameters(), 
+                                   lr=Config.LEARNING_RATE)
+        self.scheduler = optim.lr_scheduler.ReduceLROnPlateau(
+            self.optimizer, mode='max', factor=0.5, patience=10
+        )
+        
+        self.update_counter = 0
+        
+    def update_target_model(self):
+        """Copy weights from main model to target model"""
+        self.target_network.load_state_dict(self.q_network.state_dict())
+    
+    def remember(self, state, action, reward, next_state, done):
+        """Store experience in replay memory - now with torch tensors"""
+        # Ensure states are tensors on device
+        if not isinstance(state, torch.Tensor):
+            state = torch.tensor(state, device=device, dtype=torch.float32)
+        if not isinstance(next_state, torch.Tensor):
+            next_state = torch.tensor(next_state, device=device, dtype=torch.float32)
+        
+        experience = Experience(state, action, reward, next_state, done)
+        self.memory.push(experience)
+    
+    def act(self, state: torch.Tensor) -> int:
+        """Choose action using epsilon-greedy policy - now accepts torch.Tensor"""
+        # Epsilon-greedy
+        if random.random() <= self.epsilon:
+            return random.randrange(self.action_size)
+        
+        # Get Q-values - state is already a tensor on device!
+        if state.dim() == 1:
+            state = state.unsqueeze(0)  # Add batch dimension
+        
+        self.q_network.eval()
+        with torch.no_grad():
+            q_values = self.q_network(state)
+        self.q_network.train()
+        
+        # Add exploration bonus
+        q_values_np = q_values.cpu().numpy()[0]
+        exploration_bonus = np.random.normal(0, 0.01, self.action_size)
+        
+        return np.argmax(q_values_np + exploration_bonus)
+    
+    def replay(self, batch_size: int):
+        """Train model on batch of experiences with prioritized replay"""
+        if len(self.memory.buffer) < batch_size:
+            return
+        
+        # Sample from memory
+        experiences, indices, weights = self.memory.sample(batch_size, self.beta)
+        
+        # Prepare batch - states are already tensors on device!
+        states = torch.stack([e.state for e in experiences])
+        actions = torch.LongTensor([e.action for e in experiences]).to(device)
+        rewards = torch.FloatTensor([e.reward for e in experiences]).to(device)
+        next_states = torch.stack([e.next_state for e in experiences])
+        dones = torch.FloatTensor([e.done for e in experiences]).to(device)
+        
+        # Current Q-values
+        current_q_values = self.q_network(states).gather(1, actions.unsqueeze(1))
+        
+        # Next Q-values using Double DQN
+        with torch.no_grad():
+            next_actions = self.q_network(next_states).argmax(1).unsqueeze(1)
+            next_q_values = self.target_network(next_states).gather(1, next_actions).squeeze()
+            target_q_values = rewards + (1 - dones) * self.gamma * next_q_values
+        
+        # Calculate loss with importance sampling
+        td_errors = target_q_values.unsqueeze(1) - current_q_values
+        loss = (weights.unsqueeze(1) * td_errors.pow(2)).mean()
+        
+        # Update priorities
+        priorities = td_errors.detach().abs().cpu().numpy().squeeze()
+        self.memory.update_priorities(indices, priorities)
+        
+        # Optimize model
+        self.optimizer.zero_grad()
+        loss.backward()
+        torch.nn.utils.clip_grad_norm_(self.q_network.parameters(), 1.0)
+        self.optimizer.step()
+        
+        # Update target network
+        self.update_counter += 1
+        if self.update_counter % Config.UPDATE_TARGET_EVERY == 0:
+            self.update_target_model()
+        
+        # Decay epsilon per step
+        if self.epsilon > self.epsilon_min:
+            self.epsilon *= self.epsilon_decay
+        
+        # Increment beta
+        self.beta = min(1.0, self.beta + self.beta_increment)
+        
+        return loss.item()
+
+# %% Training Functions
+def train_agent(agent: TradingAgent, env: TradingEnvironment, df_train: pd.DataFrame,
+                window_size: int, episodes: int, fast_mode: bool = False):
+    """Enhanced training loop with better monitoring and proper Sharpe calculation"""
+    
+    episode_rewards = []
+    episode_profits = []
+    episode_sharpes = []
+    best_sharpe = -float('inf')
+    no_improvement_count = 0
+    
+    # Setup efficient plotting
+    fig, ax = plt.subplots(figsize=(12, 4))
+    line_price, = ax.plot([], [], lw=1, label='Close', color='blue')
+    entries_scatter = ax.scatter([], [], marker='^', color='g', s=50, label='Entry', zorder=5)
+    exits_scatter = ax.scatter([], [], marker='v', color='r', s=50, label='Exit', zorder=5)
+    ax.legend(loc='upper left')
+    ax.set_xlabel('Time')
+    ax.set_ylabel('Price')
+    os.makedirs('plots', exist_ok=True)
+    
+    # Thread pool for async saving
+    executor = ThreadPoolExecutor(max_workers=2)
+    
+    def async_save(fig, path):
+        """Save figure asynchronously"""
+        fig.savefig(path, dpi=80, bbox_inches='tight')    
+    for episode in range(episodes):
+        # Reset environment
+        env.reset()
+        
+        # Sample random window
+        window_length = min(
+            int(Config.MIN_WINDOW_SIZE * (1.2 ** (episode / 10))),
+            Config.MAX_WINDOW_SIZE,
+            len(df_train) - window_size - 1
+        )
+        
+        if fast_mode:
+            window_length = min(window_length, 5000)
+        
+        start_idx = random.randint(window_size, len(df_train) - window_length - 1)
+        end_idx = start_idx + window_length
+        
+        # Get initial state - now returns torch.Tensor
+        state = env.get_state(start_idx, window_size)
+        total_reward = 0
+        
+        # Training loop
+        pbar = tqdm(range(start_idx, end_idx - 1), 
+                   desc=f"Episode {episode+1}/{episodes}")
+        
+        for t in pbar:
+            # Agent takes action
+            action = agent.act(state)
+            
+            # Execute action
+            reward, info = env.execute_action(action, t)
+            total_reward += reward
+            
+            # Get next state
+            next_state = env.get_state(t + 1, window_size)
+            done = (t == end_idx - 2)
+            
+            # Store experience - states are already tensors
+            agent.remember(state, action, reward, next_state, done)
+            state = next_state
+            
+            # Train on mini-batch
+            if len(agent.memory.buffer) > Config.BATCH_SIZE:
+                loss = agent.replay(Config.BATCH_SIZE)
+            
+            # Update progress bar with USD profit
+            if env.position:
+                pbar.set_postfix({
+                    'Profit': f"${env.balance - env.initial_balance:,.0f}",
+                    'Trades': len(env.trade_history),
+                    'ε': f"{agent.epsilon:.3f}"
+                })
+        
+        # Episode summary with USD profits
+        final_profit_usd = env.balance - env.initial_balance
+        final_profit_pct = (env.balance / env.initial_balance - 1) * 100
+        trades = env.trade_history
+        
+        if trades:
+            wins = [t for t in trades if t['pnl'] > 0]
+            win_rate = len(wins) / len(trades) * 100
+            
+            # Exit type statistics
+            tp_exits = sum(1 for t in trades if t.get('tp_exit', False))
+            sl_exits = sum(1 for t in trades if t.get('sl_exit', False))
+            manual_exits = sum(1 for t in trades if t.get('manual_exit', False))
+            
+            # Exit type percentages
+            pct_tp = (tp_exits / len(trades)) * 100 if trades else 0
+            pct_sl = (sl_exits / len(trades)) * 100 if trades else 0
+            pct_manual = (manual_exits / len(trades)) * 100 if trades else 0
+            
+            # Average drawdown
+            avg_drawdown = np.mean([t.get('drawdown', 0) for t in trades]) * 100
+            
+            avg_win = np.mean([t['pnl'] for t in wins]) if wins else 0
+            avg_loss = np.mean([t['pnl'] for t in trades if t['pnl'] <= 0]) if len(trades) > len(wins) else 0
+        else:
+            win_rate = 0
+            tp_exits = sl_exits = manual_exits = 0
+            pct_tp = pct_sl = pct_manual = 0
+            avg_drawdown = 0
+            avg_win = 0
+            avg_loss = 0
+        
+        # Calculate proper Sharpe ratio from equity curve
+        if len(env.equity_curve) > 1:
+            equity_series = pd.Series(env.equity_curve)
+            # Calculate per-bar returns
+            bar_returns = equity_series.pct_change().dropna()
+            if len(bar_returns) > 0 and bar_returns.std() > 0:
+                # Annualize: 96 bars per day (15-minute bars)
+                sharpe = bar_returns.mean() / bar_returns.std() * np.sqrt(252 * 96)
+            else:
+                sharpe = 0
+        else:
+            sharpe = 0
+        
+        print(f"\nEpisode {episode+1} Summary:")
+        print(f"  Total Reward: {total_reward:.2f}")
+        print(f"  Final Profit: ${final_profit_usd:,.0f} ({final_profit_pct:.2f}%)")
+        print(f"  Sharpe Ratio: {sharpe:.2f}")
+        print(f"  Total Trades: {len(trades)}")
+        
+        if trades:
+            print(f"  Win Rate: {win_rate:.1f}%")
+            print(f"  Avg Win: ${avg_win:.2f}, Avg Loss: ${avg_loss:.2f}")
+            print(f"  Exit Types: TP={pct_tp:.1f}%, SL={pct_sl:.1f}%, Manual={pct_manual:.1f}%")
+            print(f"  Avg Drawdown: {avg_drawdown:.1f}%")
+        
+        episode_rewards.append(total_reward)
+        episode_profits.append(final_profit_pct)  # Keep percentage for compatibility
+        episode_sharpes.append(sharpe)
+        
+        # Learning rate scheduling based on Sharpe
+        agent.scheduler.step(sharpe)
+        
+        # Early stopping based on Sharpe
+        if sharpe > best_sharpe:
+            best_sharpe = sharpe
+            no_improvement_count = 0
+            # Save best model
+            torch.save(agent.q_network.state_dict(), 'best_model.pth')
+        else:
+            no_improvement_count += 1
+        
+        # Print current epsilon (decay happens per-step in replay)
+        print(f"  Current Epsilon: {agent.epsilon:.4f}")
+        
+        # Plot episode trades efficiently
+        if len(trades) > 0:
+            # Get price series for this window
+            prices = df_train['Close'].iloc[start_idx:end_idx].values
+            
+            # Build entry/exit indices relative to window
+            entry_indices = []
+            exit_indices = []
+            entry_prices = []
+            exit_prices = []
+            
+            for trade in trades:
+                # Need to track exit index when position closes
+                entry_idx = trade.get('entry_index', 0) - start_idx
+                # Calculate exit index from entry + holding time
+                exit_idx = entry_idx + trade['holding_time']
+                
+                if 0 <= entry_idx < len(prices):
+                    entry_indices.append(entry_idx)
+                    entry_prices.append(prices[entry_idx])
+                if 0 <= exit_idx < len(prices):
+                    exit_indices.append(exit_idx)
+                    exit_prices.append(prices[exit_idx])
+            
+            # Update plot data
+            line_price.set_data(range(len(prices)), prices)
+            ax.set_xlim(0, len(prices))
+            ax.set_ylim(prices.min() * 0.995, prices.max() * 1.005)
+            
+            # Update scatter points
+            if entry_indices:
+                entries_scatter.set_offsets(np.c_[entry_indices, entry_prices])
+            else:
+                entries_scatter.set_offsets(np.empty((0, 2)))
+                
+            if exit_indices:
+                exits_scatter.set_offsets(np.c_[exit_indices, exit_prices])
+            else:
+                exits_scatter.set_offsets(np.empty((0, 2)))
+            
+            # Update title
+            ax.set_title(f'Episode {episode+1} - Profit: ${final_profit_usd:,.0f} ({final_profit_pct:.1f}%) - Sharpe: {sharpe:.2f}')
+            
+            # Draw and save asynchronously
+            fig.canvas.draw()
+            executor.submit(async_save, fig, f'plots/episode_{episode+1:03d}.png')
+        
+        if no_improvement_count >= 30:
+            print(f"\nEarly stopping: No improvement for 30 episodes")
+            break
+    
+    # Cleanup
+    executor.shutdown(wait=True)
+    plt.close(fig)
+    
+    return episode_rewards, episode_profits, episode_sharpes
+
+# %% Main Execution
+def main(fast_mode: bool = False):
+    """Main training and testing pipeline"""
+    
+    # Create directories
+    os.makedirs('models', exist_ok=True)
+    os.makedirs('plots', exist_ok=True)
+    
+    # Initialize data loader
+    loader = DataLoader(Config.CURRENCY_PAIR)
+    
+    # Load and prepare data
+    df = loader.load_data()
+    df = loader.add_technical_indicators()
+    feature_cols = loader.prepare_features()
+    
+    print(f"\nUsing {len(feature_cols)} features")
+    
+    # Split data
+    train_size = int(len(df) * Config.TRAIN_TEST_SPLIT)
+    df_train = df[:train_size].copy()
+    df_test = df[train_size:].copy()
+    
+    print(f"\nTraining data: {len(df_train)} samples")
+    print(f"Testing data: {len(df_test)} samples")
+    
+    # Initialize environment and agent
+    env = TradingEnvironment(df_train, feature_cols)
+    state_size = len(feature_cols) * Config.WINDOW_SIZE + 7  # +7 for position info
+    agent = TradingAgent(state_size, Config.ACTION_SIZE)
+    
+    print(f"\nState size: {state_size}")
+    print(f"Action size: {Config.ACTION_SIZE}")
+    
+    # Start training
+    print("\nStarting training...")
+    episodes = 10 if fast_mode else Config.EPISODES
+    episode_rewards, episode_profits, episode_sharpes = train_agent(
+        agent, env, df_train, Config.WINDOW_SIZE, episodes, fast_mode
+    )
+    
+    # Load best model for testing
+    agent.q_network.load_state_dict(torch.load('best_model.pth'))
+    agent.epsilon = 0  # No exploration during testing
+    
+    print("\n" + "="*50)
+    print("Testing on unseen data...")
+    print("="*50)
+    
+    # Test on test set
+    env_test = TradingEnvironment(df_test, feature_cols)
+    env_test.reset()
+    
+    # Get initial state as tensor
+    state = env_test.get_state(Config.WINDOW_SIZE, Config.WINDOW_SIZE)
+    test_trades = []
+    
+    for t in tqdm(range(Config.WINDOW_SIZE, len(df_test) - 1)):
+        action = agent.act(state)
+        reward, info = env_test.execute_action(action, t)
+        
+        next_state = env_test.get_state(t + 1, Config.WINDOW_SIZE)
+        state = next_state
+        
+        if 'position_opened' in info:
+            test_trades.append({
+                'time': df_test.index[t],
+                'action': info['position_opened'],
+                'price': info['price']
+            })
+    
+    # Final test results
+    final_balance = env_test.balance
+    if env_test.position:
+        # Close any open position
+        final_price = df_test['Close'].iloc[-1]
+        env_test._close_position(final_price, 'manual')
+        final_balance = env_test.balance
+    
+    test_profit_usd = final_balance - Config.INITIAL_BALANCE
+    test_profit_pct = (final_balance / Config.INITIAL_BALANCE - 1) * 100
+    test_trades_data = env_test.trade_history
+    
+    # Calculate proper Sharpe ratio from equity curve
+    equity_curve = env_test.get_equity_curve()
+    
+    if len(equity_curve) > 1:
+        # Calculate daily returns from equity curve
+        # Resample to daily (assuming 96 bars per day for 15-minute data)
+        daily_equity = equity_curve.resample('D', on=df_test.index[:len(equity_curve)]).last()
+        daily_returns = daily_equity.pct_change().dropna()
+        
+        if len(daily_returns) > 0 and daily_returns.std() > 0:
+            sharpe = daily_returns.mean() / daily_returns.std() * np.sqrt(252)
+        else:
+            sharpe = 0
+    else:
+        sharpe = 0
+    
+    if test_trades_data:
+        test_wins = [t for t in test_trades_data if t['pnl'] > 0]
+        test_win_rate = len(test_wins) / len(test_trades_data) * 100
+        max_dd = env_test.max_drawdown * 100
+        
+        # Exit type statistics for test
+        test_tp_exits = sum(1 for t in test_trades_data if t.get('tp_exit', False))
+        test_sl_exits = sum(1 for t in test_trades_data if t.get('sl_exit', False))
+        test_manual_exits = sum(1 for t in test_trades_data if t.get('manual_exit', False))
+        
+        # Exit type percentages
+        test_pct_tp = (test_tp_exits / len(test_trades_data)) * 100
+        test_pct_sl = (test_sl_exits / len(test_trades_data)) * 100
+        test_pct_manual = (test_manual_exits / len(test_trades_data)) * 100
+        
+        # Average drawdown
+        test_avg_drawdown = np.mean([t.get('drawdown', 0) for t in test_trades_data]) * 100
+        
+        print(f"\nTest Results:")
+        print(f"Final Profit: ${test_profit_usd:,.0f} ({test_profit_pct:.2f}%)")
+        print(f"Total Trades: {len(test_trades_data)}")
+        print(f"Win Rate: {test_win_rate:.1f}%")
+        print(f"Sharpe Ratio (Daily): {sharpe:.2f}")
+        print(f"Max Drawdown: {max_dd:.1f}%")
+        print(f"Exit Types: TP={test_pct_tp:.1f}%, SL={test_pct_sl:.1f}%, Manual={test_pct_manual:.1f}%")
+        print(f"Avg Drawdown per Trade: {test_avg_drawdown:.1f}%")
+    else:
+        print("\nNo trades executed during testing")
+        print(f"Sharpe Ratio (Daily): {sharpe:.2f}")
+        test_win_rate = 0
+    
+    # Save results
+    results = {
+        'train_profits': episode_profits,
+        'train_sharpes': episode_sharpes,
+        'test_profit_usd': test_profit_usd,
+        'test_profit_pct': test_profit_pct,
+        'test_sharpe': sharpe,
+        'test_trades': len(test_trades_data) if test_trades_data else 0,
+        'test_win_rate': test_win_rate if test_trades_data else 0,
+        'equity_curve': equity_curve.tolist()
+    }
+    
+    torch.save(results, 'training_results.pth')
+    print("\nTraining complete! Results saved.")
+
+if __name__ == "__main__":
+    import argparse
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--fast', action='store_true', help='Fast mode for testing')
+    args = parser.parse_args()
+    
+    main(fast_mode=args.fast)
