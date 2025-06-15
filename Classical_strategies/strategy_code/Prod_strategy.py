@@ -1458,6 +1458,15 @@ class OptimizedProdStrategy:
             self.current_capital += remaining_pnl
             trade.exit_count += 1  # Increment exit counter for full exits
             
+            # Record the final exit as a partial exit (for consistency)
+            trade.partial_exits.append(PartialExit(
+                time=exit_time,
+                price=exit_price,
+                size=trade.remaining_size,
+                tp_level=0,  # 0 indicates non-TP exit
+                pnl=remaining_pnl
+            ))
+            
             if self.config.debug_decisions:
                 print(f"  🔥 FULL EXIT: Closing remaining {trade.remaining_size/self.config.min_lot_size:.2f}M")
                 print(f"     Exit Count: {trade.exit_count}")
