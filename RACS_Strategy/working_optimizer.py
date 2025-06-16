@@ -18,7 +18,8 @@ class SimpleBacktest:
     
     def __init__(self, data: pd.DataFrame):
         self.data = data
-        self.data['Returns'] = data['Close'].pct_change()
+        self.data = data.copy()
+        self.data['Returns'] = self.data['Close'].pct_change()
         
     def test_strategy(self, fast_period: int = 10, slow_period: int = 50, 
                      risk_pct: float = 0.01, stop_pct: float = 0.02) -> dict:
@@ -186,7 +187,12 @@ class WorkingOptimizer:
             # Evaluate population
             fitness_scores = []
             for params in population:
-                result = self.backtester.test_strategy(**params)
+                result = self.backtester.test_strategy(
+                fast_period=params['fast'],
+                slow_period=params['slow'],
+                risk_pct=params['risk'],
+                stop_pct=params['stop']
+            )
                 fitness_scores.append(result['sharpe'])
             
             # Sort by fitness

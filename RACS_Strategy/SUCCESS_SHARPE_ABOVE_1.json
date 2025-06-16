@@ -1,0 +1,10 @@
+{
+  "success": true,
+  "best_sharpe": 1.286292010827033,
+  "best_strategy": "momentum",
+  "best_params": {
+    "lookback": 40,
+    "entry_z": 1.5
+  },
+  "timestamp": "2025-06-17T00:31:57.341574"
+}
