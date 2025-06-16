@@ -93,7 +93,7 @@ The agent uses sophisticated custom indicators:
 - **Episodes**: 200 (20 in fast mode)
 - **Learning Rate**: 0.0001 with ReduceLROnPlateau
 - **Gamma**: 0.995 (high for long-term rewards)
-- **Epsilon**: 0.9 → 0.01 (per-step exponential decay over first 7 episodes)
+- **Epsilon**: 0.9 → 0.01 (per-step exponential decay over first 10 episodes)
 - **N-Steps**: 3 (multi-step returns)
 - **Batch Size**: 512 (optimized for MPS)
 - **Target Update**: Every 500 steps
@@ -200,10 +200,11 @@ Reinforcement_learning/
 
 ## Recent v2.1 Updates (Latest)
 
-1. **Per-Step Epsilon Decay**: Exponential decay reaching εₘᵢₙ=0.01 exactly at end of episode 7
+1. **Per-Step Epsilon Decay**: Exponential decay reaching εₘᵢₙ=0.01 by end of episode 10
    - Replaces previous per-episode multipliers (0.90/0.99)
    - Smooth exponential curve: ε = max(0.01, 0.9 × exp(-decay_rate × global_step))
-   - Total steps calculated based on episode window sizes (~80k steps over 7 episodes)
+   - Total steps calculated based on episode window sizes (~120k steps over 10 episodes)
+   - Faster exploration-exploitation transition for improved early learning
 
 2. **Enhanced Reward Shaping**:
    - **Early Close Bonus**: Increased from +0.2 to +1.0 to strongly incentivize active exit management

@@ -1211,15 +1211,15 @@ class TradingAgent:
         self.update_counter = 0
         
         # Per-step epsilon decay parameters
-        # Calculate total steps for 7 episodes (approx 10k-15k steps per episode)
-        # Episode 0: 20k steps, Episodes 1-6: ~10k * 1.2^(episode/10) each
-        estimated_steps_per_episode = [20000] + [int(10000 * (1.2 ** (ep/10))) for ep in range(1, 7)]
-        self.total_steps_7_episodes = sum(estimated_steps_per_episode)
+        # Calculate total steps for 10 episodes (approx 10k-15k steps per episode)
+        # Episode 0: 20k steps, Episodes 1-9: ~10k * 1.2^(episode/10) each
+        estimated_steps_per_episode = [20000] + [int(10000 * (1.2 ** (ep/10))) for ep in range(1, 10)]
+        self.total_steps_10_episodes = sum(estimated_steps_per_episode)
         self.epsilon_start = Config.EPSILON
         self.epsilon_end = Config.EPSILON_MIN
-        self.epsilon_decay_rate = -math.log(self.epsilon_end / self.epsilon_start) / self.total_steps_7_episodes
+        self.epsilon_decay_rate = -math.log(self.epsilon_end / self.epsilon_start) / self.total_steps_10_episodes
         self.global_step = 0
-        print(f"Per-step epsilon decay initialized: {self.epsilon_start:.3f} → {self.epsilon_end:.3f} over ~{self.total_steps_7_episodes:,} steps")
+        print(f"Per-step epsilon decay initialized: {self.epsilon_start:.3f} → {self.epsilon_end:.3f} over ~{self.total_steps_10_episodes:,} steps")
         
     def update_target_model(self):
         """Copy weights from main model to target model"""
@@ -1746,13 +1746,13 @@ def train_agent(agent: TradingAgent, env: TradingEnvironment, df_train: pd.DataF
         
         # Epsilon is now decayed per-step in the replay() method
         # Calculate expected epsilon for verification
-        expected_eps_at_ep1 = agent.epsilon_start * math.exp(-agent.epsilon_decay_rate * agent.total_steps_7_episodes / 7)
-        expected_eps_at_ep3 = agent.epsilon_start * math.exp(-agent.epsilon_decay_rate * agent.total_steps_7_episodes * 3 / 7)
-        expected_eps_at_ep7 = agent.epsilon_start * math.exp(-agent.epsilon_decay_rate * agent.total_steps_7_episodes)
+        expected_eps_at_ep2 = agent.epsilon_start * math.exp(-agent.epsilon_decay_rate * agent.total_steps_10_episodes * 2 / 10)
+        expected_eps_at_ep5 = agent.epsilon_start * math.exp(-agent.epsilon_decay_rate * agent.total_steps_10_episodes * 5 / 10)
+        expected_eps_at_ep10 = agent.epsilon_start * math.exp(-agent.epsilon_decay_rate * agent.total_steps_10_episodes)
         
         print(f"  Current Epsilon: {agent.epsilon:.4f} (Global Step: {agent.global_step:,})")
         if episode == 0:
-            print(f"  Expected ε trajectory: Episode 1 end: ~{expected_eps_at_ep1:.3f}, Episode 3 end: ~{expected_eps_at_ep3:.3f}, Episode 7 end: ~{expected_eps_at_ep7:.3f}")
+            print(f"  Expected ε trajectory: Episode 2 end: ~{expected_eps_at_ep2:.3f}, Episode 5 end: ~{expected_eps_at_ep5:.3f}, Episode 10 end: ~{expected_eps_at_ep10:.3f}")
         
         # Anneal PER beta: linear from 0.4 to 1.0 based on total steps
         total_steps = (episode + 1) * window_length
