@@ -110,6 +110,7 @@ The agent uses sophisticated custom indicators:
 - **NAV-Delta**: Pure change in Net Asset Value (cash + unrealized P&L)
 - **Scaling Factor κ**: 200 ÷ (ATR × position_size) for normalization
 - **Holding Cost**: -0.001 per bar when position is open
+- **Hold Action Penalty**: -0.0005 when choosing "hold" action (encourages trading)
 - **Philosophy**: Minimal reward shaping - let the agent learn from pure profit/loss signals
 
 ## Performance Metrics
@@ -210,6 +211,15 @@ Reinforcement_learning/
    - **Minimal Shaping**: Only -0.001 per bar holding cost remains
    - **Philosophy**: Let the agent learn from pure profit/loss signals without artificial biases
    - **Benefits**: Cleaner learning signal, easier to debug, more robust to different market conditions
+
+3. **Test-Time Exploration Fixes (5 Methods)**:
+   - **Epsilon Floor**: Maintains ε=0.01 at test time instead of zero (ensures some exploration)
+   - **Always-On NoisyNet**: Modified NoisyLinear to provide stochastic exploration even during evaluation
+   - **Boltzmann Action Selection**: At test time, uses temperature-scaled softmax (τ=0.2) instead of greedy argmax
+   - **Hold Action Penalty**: Added -0.0005 reward penalty for choosing "hold" to discourage excessive inaction
+   - **Periodic Noise Reset**: Resets network noise every 100 steps during testing for diversity
+   - **Result**: Agent actually trades at test time using multiple exploration mechanisms
+   - **Philosophy**: Pure greedy policies often fail to trade; maintaining stochasticity through multiple methods ensures robust trading
 
 ## Requirements
 

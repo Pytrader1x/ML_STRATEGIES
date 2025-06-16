@@ -474,6 +474,219 @@ class ValidatedStrategyRunner:
         os.makedirs('results', exist_ok=True)
         df_results.to_csv(results_file, index=False)
         print(f"\n💾 Detailed results saved to: {results_file}")
+    
+    def run_sequential_analysis(self, mode='yearly', start_year=None, end_year=None):
+        """Run sequential analysis year-by-year or quarter-by-quarter
+        
+        Args:
+            mode: 'yearly' or 'quarterly'
+            start_year: Starting year (default: first year in data)
+            end_year: Ending year (default: last year in data)
+        """
+        # Load data if not already loaded
+        if self.df is None:
+            self.load_data()
+        
+        # Determine year range
+        data_start_year = self.df.index[0].year
+        data_end_year = self.df.index[-1].year
+        
+        if start_year is None:
+            start_year = data_start_year
+        if end_year is None:
+            end_year = data_end_year
+            
+        start_year = max(start_year, data_start_year)
+        end_year = min(end_year, data_end_year)
+        
+        print(f"\n📊 SEQUENTIAL {mode.upper()} ANALYSIS")
+        print(f"Period: {start_year} to {end_year}")
+        print("="*80)
+        
+        all_results = []
+        
+        if mode == 'yearly':
+            # Year-by-year analysis
+            for year in range(start_year, end_year + 1):
+                print(f"\n{'='*40}")
+                print(f"YEAR {year}")
+                print(f"{'='*40}")
+                
+                # Check if we have data for full year
+                year_start = f"{year}-01-01"
+                year_end = f"{year}-12-31"
+                
+                # Run backtest for this year
+                try:
+                    result, _ = self.run_backtest(year_start, year_end)
+                    result['period'] = f"Year {year}"
+                    result['start_date'] = year_start
+                    result['end_date'] = year_end
+                    all_results.append(result)
+                    
+                    # Display key metrics
+                    print(f"Sharpe Ratio: {result.get('sharpe_ratio', 0):.2f}")
+                    print(f"Total Return: {result.get('total_return_pct', 0):.1f}%")
+                    print(f"Max Drawdown: {result.get('max_drawdown_pct', 0):.1f}%")
+                    print(f"Win Rate: {result.get('win_rate', 0):.1f}%")
+                    print(f"Total Trades: {result.get('total_trades', 0)}")
+                except Exception as e:
+                    print(f"Error processing year {year}: {str(e)}")
+                    
+        elif mode == 'quarterly':
+            # Quarter-by-quarter analysis
+            quarters = ['Q1', 'Q2', 'Q3', 'Q4']
+            quarter_months = {
+                'Q1': ('01-01', '03-31'),
+                'Q2': ('04-01', '06-30'),
+                'Q3': ('07-01', '09-30'),
+                'Q4': ('10-01', '12-31')
+            }
+            
+            for year in range(start_year, end_year + 1):
+                for quarter, (start_month, end_month) in quarter_months.items():
+                    period_name = f"{year} {quarter}"
+                    print(f"\n{'='*40}")
+                    print(f"{period_name}")
+                    print(f"{'='*40}")
+                    
+                    # Set dates
+                    quarter_start = f"{year}-{start_month}"
+                    quarter_end = f"{year}-{end_month}"
+                    
+                    # Run backtest for this quarter
+                    try:
+                        result, _ = self.run_backtest(quarter_start, quarter_end)
+                        result['period'] = period_name
+                        result['start_date'] = quarter_start
+                        result['end_date'] = quarter_end
+                        all_results.append(result)
+                        
+                        # Display key metrics
+                        print(f"Sharpe Ratio: {result.get('sharpe_ratio', 0):.2f}")
+                        print(f"Total Return: {result.get('total_return_pct', 0):.1f}%")
+                        print(f"Max Drawdown: {result.get('max_drawdown_pct', 0):.1f}%")
+                        print(f"Win Rate: {result.get('win_rate', 0):.1f}%")
+                        print(f"Total Trades: {result.get('total_trades', 0)}")
+                    except Exception as e:
+                        print(f"Error processing {period_name}: {str(e)}")
+        
+        # Summary statistics
+        if all_results:
+            print(f"\n{'='*80}")
+            print(f"SUMMARY STATISTICS - {mode.upper()} ANALYSIS")
+            print(f"{'='*80}")
+            
+            # Convert to DataFrame for easier analysis
+            df_results = pd.DataFrame(all_results)
+            
+            # Calculate statistics
+            avg_sharpe = df_results['sharpe_ratio'].mean()
+            std_sharpe = df_results['sharpe_ratio'].std()
+            avg_return = df_results['total_return_pct'].mean()
+            avg_trades = df_results['total_trades'].mean()
+            avg_win_rate = df_results['win_rate'].mean()
+            
+            print(f"\nAverage Sharpe Ratio: {avg_sharpe:.2f} (±{std_sharpe:.2f})")
+            print(f"Average Return per {mode[:-2]}: {avg_return:.1f}%")
+            print(f"Average Win Rate: {avg_win_rate:.1f}%")
+            print(f"Average Trades per {mode[:-2]}: {avg_trades:.0f}")
+            
+            # Best and worst periods
+            best_period = df_results.loc[df_results['sharpe_ratio'].idxmax()]
+            worst_period = df_results.loc[df_results['sharpe_ratio'].idxmin()]
+            
+            print(f"\nBest Period: {best_period['period']} (Sharpe: {best_period['sharpe_ratio']:.2f})")
+            print(f"Worst Period: {worst_period['period']} (Sharpe: {worst_period['sharpe_ratio']:.2f})")
+            
+            # Save results
+            timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+            results_file = f'results/sequential_{mode}_{start_year}_{end_year}_{timestamp}.csv'
+            os.makedirs('results', exist_ok=True)
+            df_results.to_csv(results_file, index=False)
+            print(f"\n💾 Sequential analysis results saved to: {results_file}")
+            
+            # Plot if enabled
+            if self.show_plots or self.save_plots:
+                self._plot_sequential_results(df_results, mode)
+                
+        return all_results
+    
+    def _plot_sequential_results(self, df_results, mode):
+        """Plot sequential analysis results"""
+        fig, axes = plt.subplots(2, 2, figsize=(15, 10))
+        fig.suptitle(f'Sequential {mode.capitalize()} Analysis Results', fontsize=16)
+        
+        # Sharpe Ratio over time
+        ax = axes[0, 0]
+        ax.plot(df_results.index, df_results['sharpe_ratio'], marker='o', linewidth=2)
+        ax.axhline(y=1.0, color='r', linestyle='--', alpha=0.5, label='Target (1.0)')
+        ax.set_title('Sharpe Ratio Evolution')
+        ax.set_ylabel('Sharpe Ratio')
+        ax.grid(True, alpha=0.3)
+        ax.legend()
+        
+        # Returns over time
+        ax = axes[0, 1]
+        colors = ['green' if x > 0 else 'red' for x in df_results['total_return_pct']]
+        ax.bar(df_results.index, df_results['total_return_pct'], color=colors, alpha=0.7)
+        ax.set_title(f'Returns per {mode[:-2].capitalize()}')
+        ax.set_ylabel('Return (%)')
+        ax.grid(True, alpha=0.3)
+        
+        # Win Rate over time
+        ax = axes[1, 0]
+        ax.plot(df_results.index, df_results['win_rate'], marker='s', linewidth=2, color='orange')
+        ax.axhline(y=65, color='r', linestyle='--', alpha=0.5, label='Target (65%)')
+        ax.set_title('Win Rate Evolution')
+        ax.set_ylabel('Win Rate (%)')
+        ax.set_ylim(0, 100)
+        ax.grid(True, alpha=0.3)
+        ax.legend()
+        
+        # Trade count over time
+        ax = axes[1, 1]
+        ax.bar(df_results.index, df_results['total_trades'], alpha=0.7, color='purple')
+        ax.set_title(f'Number of Trades per {mode[:-2].capitalize()}')
+        ax.set_ylabel('Trade Count')
+        ax.grid(True, alpha=0.3)
+        
+        # Add period labels
+        for ax in axes.flatten():
+            ax.set_xticks(df_results.index)
+            ax.set_xticklabels([r['period'] for _, r in df_results.iterrows()], rotation=45, ha='right')
+        
+        plt.tight_layout()
+        
+        if self.save_plots:
+            timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+            filename = f'plots/sequential_{mode}_analysis_{timestamp}.png'
+            os.makedirs('plots', exist_ok=True)
+            plt.savefig(filename, dpi=150, bbox_inches='tight')
+            print(f"💾 Plot saved to: {filename}")
+            
+        if self.show_plots:
+            plt.show()
+        else:
+            plt.close()
+    
+    def run_monte_carlo_all_years(self, n_simulations=100, sample_size_days=90):
+        """Run Monte Carlo simulation across all available years
+        
+        This method runs Monte Carlo on the entire dataset, sampling from all years
+        """
+        # Load data if not already loaded
+        if self.df is None:
+            self.load_data()
+            
+        print(f"\n🎲 MONTE CARLO SIMULATION - ALL YEARS")
+        print(f"Full dataset: {self.df.index[0].date()} to {self.df.index[-1].date()}")
+        print(f"Simulations: {n_simulations}")
+        print(f"Sample size: {sample_size_days} days per simulation")
+        print("="*80)
+        
+        # Run standard Monte Carlo on full dataset
+        self.run_monte_carlo(n_simulations=n_simulations, sample_size_days=sample_size_days)
 
 def main():
     """Main function with command line arguments"""
@@ -487,6 +700,10 @@ def main():
     parser.add_argument('--end-date', help='End date (YYYY-MM-DD)')
     parser.add_argument('--period', choices=['2024', '2023', 'recent', 'last-quarter'], help='Predefined test period')
     parser.add_argument('--monte-carlo', type=int, help='Run Monte Carlo simulation with N random samples')
+    parser.add_argument('--monte-carlo-all-years', action='store_true', help='Run Monte Carlo across all available years')
+    parser.add_argument('--sequential', choices=['yearly', 'quarterly'], help='Run sequential analysis (yearly or quarterly)')
+    parser.add_argument('--start-year', type=int, help='Start year for sequential analysis')
+    parser.add_argument('--end-year', type=int, help='End year for sequential analysis')
     
     args = parser.parse_args()
     
@@ -514,6 +731,22 @@ def main():
         # Run Monte Carlo simulation
         n_simulations = args.monte_carlo if args.monte_carlo > 0 else 25
         runner.run_monte_carlo(n_simulations=n_simulations, sample_size_days=90)
+        return
+    
+    # Check if Monte Carlo all years mode
+    if args.monte_carlo_all_years:
+        # Run Monte Carlo across all available years
+        runner.run_monte_carlo_all_years(n_simulations=100, sample_size_days=90)
+        return
+    
+    # Check if sequential analysis mode
+    if args.sequential:
+        # Run sequential analysis
+        runner.run_sequential_analysis(
+            mode=args.sequential,
+            start_year=args.start_year,
+            end_year=args.end_year
+        )
         return
     
     # Determine test period

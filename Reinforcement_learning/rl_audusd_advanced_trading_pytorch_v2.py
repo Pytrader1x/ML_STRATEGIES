@@ -364,12 +364,10 @@ class NoisyLinear(nn.Module):
         return x.sign() * x.abs().sqrt()
     
     def forward(self, x: torch.Tensor) -> torch.Tensor:
-        if self.training:
-            weight = self.weight_mu + self.weight_sigma * self.weight_epsilon
-            bias = self.bias_mu + self.bias_sigma * self.bias_epsilon
-        else:
-            weight = self.weight_mu
-            bias = self.bias_mu
+        # Always use noise for exploration, even during evaluation
+        # This ensures the policy remains stochastic at test time
+        weight = self.weight_mu + self.weight_sigma * self.weight_epsilon
+        bias = self.bias_mu + self.bias_sigma * self.bias_epsilon
         return F.linear(x, weight, bias)
 
 
@@ -876,9 +874,13 @@ class TradingEnvironment:
         # Core reward: tanh(κ * NAV_Δ)
         reward = float(torch.tanh(torch.tensor(kappa * nav_delta)))
         
-        # Only additional term: tiny per-bar holding cost
+        # Additional penalties to encourage trading
         if self.position:
-            reward -= 0.001  # Minimal penalty to encourage efficiency
+            reward -= 0.001  # Minimal penalty for holding positions
+        
+        # Small penalty for choosing "hold" action to discourage excessive inaction
+        if action == 0:  # Hold action
+            reward -= 0.0005  # Very small penalty to nudge agent towards trading
         
         return reward, info
     
@@ -1229,15 +1231,81 @@ class TradingAgent:
         if len(self.n_step_buffer) >= Config.N_STEPS or done:
             self._process_n_step_buffer()
     
-    def act(self, state: torch.Tensor, signal: float = 0.0, has_position: bool = False) -> int:
+    def act(self, state: torch.Tensor, signal: float = 0.0, has_position: bool = False, 
+            test_mode: bool = False, boltzmann_temp: float = 0.2) -> int:
         """Choose action using epsilon-greedy policy with strict one-trade-at-a-time masking
         
         Action masking for one trade at a time:
         - If has position: can only Hold (0) or Close (3)
         - If no position: can only Hold (0), Buy (1), or Sell (2)
         - Additional signal-based filtering when opening positions
+        
+        At test time with boltzmann_temp > 0, uses Boltzmann (softmax) exploration
+        instead of epsilon-greedy to ensure stochastic policy.
         """
-        # Epsilon-greedy with masked actions (reduced if using NoisyNet)
+        # Get Q-values - state is already a tensor on device!
+        if state.dim() == 1:
+            state = state.unsqueeze(0)  # Add batch dimension
+        
+        self.q_network.eval()
+        with torch.no_grad():
+            # Use autocast for inference if AMP is enabled
+            if Config.USE_AMP and device.type == 'cuda':
+                with torch.amp.autocast('cuda'):
+                    q_values = self.q_network(state)
+            else:
+                q_values = self.q_network(state)
+        self.q_network.train()
+        
+        # Convert to numpy for masking
+        q_values_np = q_values.cpu().numpy()[0]
+        
+        # Apply strict one-trade-at-a-time masking
+        if has_position:
+            # Can only hold or close
+            q_values_np[1] = -1e9  # Mask Buy
+            q_values_np[2] = -1e9  # Mask Sell
+        else:
+            # Can only hold or open new
+            q_values_np[3] = -1e9  # Mask Close
+            
+            # Additional signal-based filtering for new positions
+            if signal > 0.35:
+                q_values_np[2] = -1e9  # Mask Sell when strongly bullish
+            elif signal < -0.35:
+                q_values_np[1] = -1e9  # Mask Buy when strongly bearish
+        
+        # At test time, use Boltzmann (softmax) exploration for stochastic policy
+        if test_mode and boltzmann_temp > 0:
+            # Apply temperature-scaled softmax to get action probabilities
+            # Mask out invalid actions by keeping them at -inf
+            valid_mask = q_values_np > -1e8
+            valid_q_values = q_values_np[valid_mask]
+            
+            # Check if we have any valid actions
+            if len(valid_q_values) == 0:
+                # No valid actions - this shouldn't happen, but handle gracefully
+                # Default to hold action if available, otherwise first unmasked action
+                if q_values_np[0] > -1e8:
+                    return 0  # Hold
+                else:
+                    # Find first valid action
+                    for i in range(len(q_values_np)):
+                        if q_values_np[i] > -1e8:
+                            return i
+                    # Fallback - should never reach here
+                    return 0
+            
+            # Compute softmax probabilities with temperature
+            exp_values = np.exp((valid_q_values - np.max(valid_q_values)) / boltzmann_temp)
+            probabilities = exp_values / np.sum(exp_values)
+            
+            # Sample action according to probabilities
+            valid_actions = np.where(valid_mask)[0]
+            action = np.random.choice(valid_actions, p=probabilities)
+            return action
+        
+        # Training time: epsilon-greedy with masked actions (reduced if using NoisyNet)
         effective_epsilon = self.epsilon * 0.1 if Config.USE_NOISY_NET else self.epsilon
         if random.random() <= effective_epsilon:
             if has_position:
@@ -1255,39 +1323,9 @@ class TradingAgent:
             
             return random.choice(valid_actions)
         
-        # Get Q-values - state is already a tensor on device!
-        if state.dim() == 1:
-            state = state.unsqueeze(0)  # Add batch dimension
-        
-        self.q_network.eval()
-        with torch.no_grad():
-            # Use autocast for inference if AMP is enabled
-            if Config.USE_AMP and device.type == 'cuda':
-                with torch.amp.autocast('cuda'):
-                    q_values = self.q_network(state)
-            else:
-                q_values = self.q_network(state)
-        self.q_network.train()
-        
-        # Add exploration bonus
-        q_values_np = q_values.cpu().numpy()[0]
+        # Greedy action selection with exploration bonus
         exploration_bonus = np.random.normal(0, 0.01, self.action_size)
         q_values_np += exploration_bonus
-        
-        # Apply strict one-trade-at-a-time masking
-        if has_position:
-            # Can only hold or close
-            q_values_np[1] = -1e9  # Mask Buy
-            q_values_np[2] = -1e9  # Mask Sell
-        else:
-            # Can only hold or open new
-            q_values_np[3] = -1e9  # Mask Close
-            
-            # Additional signal-based filtering for new positions
-            if signal > 0.35:
-                q_values_np[2] = -1e9  # Mask Sell when strongly bullish
-            elif signal < -0.35:
-                q_values_np[1] = -1e9  # Mask Buy when strongly bearish
         
         return np.argmax(q_values_np)
     
@@ -2072,7 +2110,8 @@ def main(fast_mode: bool = False):
     
     # Load best model for testing
     agent.q_network.load_state_dict(torch.load('best_model.pth'))
-    agent.epsilon = 0  # No exploration during testing
+    # Keep a small epsilon floor for test-time exploration
+    agent.epsilon = 0.01  # Small exploration to ensure trading at test time
     
     print("\n" + "="*50)
     print("Testing on unseen data...")
@@ -2090,11 +2129,16 @@ def main(fast_mode: bool = False):
     composite_signals_test = df_test['Composite_Signal'].values
     
     for t in tqdm(range(Config.WINDOW_SIZE, len(df_test) - 1)):
+        # Reset noise periodically for better exploration diversity
+        if Config.USE_NOISY_NET and t % 100 == 0 and hasattr(agent.q_network, 'reset_noise'):
+            agent.q_network.reset_noise()
+            
         # Get composite signal for action masking - use cached array
         composite_signal = composite_signals_test[t]
         
-        # Agent takes action with signal-based masking
-        action = agent.act(state, composite_signal, has_position=bool(env_test.position))
+        # Agent takes action with signal-based masking and Boltzmann exploration at test time
+        action = agent.act(state, composite_signal, has_position=bool(env_test.position), 
+                          test_mode=True, boltzmann_temp=0.2)
         _, info = env_test.execute_action(action, t)
         
         next_state = env_test.get_state(t + 1, Config.WINDOW_SIZE)
