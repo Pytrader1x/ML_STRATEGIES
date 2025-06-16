@@ -93,7 +93,7 @@ The agent uses sophisticated custom indicators:
 - **Episodes**: 200 (20 in fast mode)
 - **Learning Rate**: 0.0001 with ReduceLROnPlateau
 - **Gamma**: 0.995 (high for long-term rewards)
-- **Epsilon**: 0.9 → 0.01 (episode-based decay)
+- **Epsilon**: 0.9 → 0.01 (per-step exponential decay over first 7 episodes)
 - **N-Steps**: 3 (multi-step returns)
 - **Batch Size**: 512 (optimized for MPS)
 - **Target Update**: Every 500 steps
@@ -108,9 +108,11 @@ The agent uses sophisticated custom indicators:
 ### Reward System
 - **NAV-Delta**: Pure change in Net Asset Value
 - **Scale Factor**: 200× with ATR normalization
-- **Drawdown Penalty**: -0.01 × current_drawdown
-- **Early Close Bonus**: +0.2 for successful early exits
-- **Holding Penalty**: -0.005 for losing positions
+- **Drawdown Penalty**: -0.02 × (current_drawdown)² (quadratic penalty)
+- **Early Close Bonus**: +1.0 for successful early exits (increased to encourage active management)
+- **Holding Penalty**: -0.02 per bar for losing positions (amplified)
+- **Holding Bonus**: +0.005 per bar for winning positions (let winners run)
+- **Time-in-Market Cost**: -0.001 per bar (avoid unnecessary position holding)
 
 ## Performance Metrics
 
@@ -196,6 +198,20 @@ Reinforcement_learning/
 9. **One-Trade Enforcement**: Strict masking prevents overlapping positions
 10. **Dynamic Position Sizing**: Confidence-based sizing (configurable)
 
+## Recent v2.1 Updates (Latest)
+
+1. **Per-Step Epsilon Decay**: Exponential decay reaching εₘᵢₙ=0.01 exactly at end of episode 7
+   - Replaces previous per-episode multipliers (0.90/0.99)
+   - Smooth exponential curve: ε = max(0.01, 0.9 × exp(-decay_rate × global_step))
+   - Total steps calculated based on episode window sizes (~80k steps over 7 episodes)
+
+2. **Enhanced Reward Shaping**:
+   - **Early Close Bonus**: Increased from +0.2 to +1.0 to strongly incentivize active exit management
+   - **Amplified Loser Penalty**: Increased from -0.005 to -0.02 per bar on losing positions
+   - **Winner Holding Bonus**: New +0.005 per bar reward for profitable positions
+   - **Quadratic Drawdown**: Changed from linear (-0.01 × dd) to quadratic (-0.02 × dd²)
+   - **Time Cost**: Added -0.001 per bar penalty regardless of P&L to reduce unnecessary holding
+
 ## Requirements
 
 ```
@@ -221,6 +237,33 @@ tensorboard>=2.13.0 # Optional
 - [ ] Multi-asset portfolio management
 - [ ] Online learning capabilities
 - [ ] API for live trading integration
+
+## TODO / Known Issues
+
+### Code Quality
+- [ ] High cognitive complexity in several functions (train_agent: 190, execute_action: 29, act: 20)
+- [ ] Replace deprecated numpy.random functions with numpy.random.Generator
+- [ ] Add weight_decay hyperparameter to Adam optimizer
+- [ ] Fix SonarQube warnings about constant conditions and unused variables
+
+### Performance Optimizations
+- [ ] Implement torch.compile on non-MPS devices for faster execution
+- [ ] Consider reducing memory footprint of replay buffer
+- [ ] Optimize episode plotting (currently every 5 episodes)
+- [ ] Profile and optimize the state building process
+
+### Functional Improvements
+- [ ] Add configuration file support (YAML/JSON) instead of hardcoded Config class
+- [ ] Implement model ensembling for more robust predictions
+- [ ] Add support for multiple currency pairs simultaneously
+- [ ] Implement adaptive position sizing based on Kelly criterion
+- [ ] Add risk parity position sizing option
+
+### Testing & Validation
+- [ ] Add unit tests for core components (Environment, Agent, Memory)
+- [ ] Implement backtesting framework with transaction cost sensitivity analysis
+- [ ] Add Monte Carlo validation for strategy robustness
+- [ ] Create benchmark comparisons against buy-and-hold and other baselines
 
 ## Citation
 

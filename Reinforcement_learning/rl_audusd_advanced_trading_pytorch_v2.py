@@ -21,6 +21,7 @@ from typing import List, Tuple, Dict, Optional
 from concurrent.futures import ThreadPoolExecutor
 import warnings
 import time
+import math
 try:
     from torch.utils.tensorboard import SummaryWriter
     TENSORBOARD_AVAILABLE = True
@@ -123,7 +124,7 @@ class Config:
     MIN_RR_RATIO = 1.5      # Minimum risk/reward ratio
     
     # Reward shaping
-    DRAWDOWN_PENALTY_COEF = 0.01  # Penalty coefficient for drawdown
+    # Note: Drawdown penalty is now quadratic: -0.02 * (drawdown^2)
     
     # C51 Distributional RL parameters
     C51_ATOMS = 51  # Number of atoms for value distribution
@@ -874,20 +875,28 @@ class TradingEnvironment:
         reward = float(torch.tanh(torch.tensor(reward)))
         
         # Enhanced reward shaping
-        # 1. Boost early-close bonus
+        # 1. Boost early-close bonus significantly
         if info.get('exit_type') == 'early_close':
-            reward += 0.2  # Increased from 0.05
+            reward += 1.0  # Increased from 0.2 to 1.0 to make Close action more attractive
             
         # 2. Remove over-trading penalty (double-counting with transaction cost)
         # Removed: if info.get('exit_type'): reward -= 0.01
             
-        # 3. Holding fee on losers
+        # 3. Amplified holding fee on losers
         if self.position and self.position['unrealized_pnl'] < 0:
-            reward -= 0.005
+            reward -= 0.02  # Increased from 0.005 to discourage holding losers
         
-        # 4. Drawdown penalty - penalize being below peak
+        # 4. Reward positive holding on winners
+        if self.position and self.position['unrealized_pnl'] > 0:
+            reward += 0.005  # Small bonus per bar to encourage letting winners run
+        
+        # 5. Quadratic drawdown penalty curve - hits harder on large drawdowns
         current_drawdown = self.max_drawdown
-        reward -= Config.DRAWDOWN_PENALTY_COEF * current_drawdown
+        reward -= 0.02 * (current_drawdown ** 2)  # Changed from linear to quadratic
+        
+        # 6. Small time-in-market cost (regardless of P&L)
+        if self.position:
+            reward -= 0.001  # Tiny per-bar penalty to avoid unnecessary churn
         
         return reward, info
     
@@ -1201,6 +1210,17 @@ class TradingAgent:
         
         self.update_counter = 0
         
+        # Per-step epsilon decay parameters
+        # Calculate total steps for 7 episodes (approx 10k-15k steps per episode)
+        # Episode 0: 20k steps, Episodes 1-6: ~10k * 1.2^(episode/10) each
+        estimated_steps_per_episode = [20000] + [int(10000 * (1.2 ** (ep/10))) for ep in range(1, 7)]
+        self.total_steps_7_episodes = sum(estimated_steps_per_episode)
+        self.epsilon_start = Config.EPSILON
+        self.epsilon_end = Config.EPSILON_MIN
+        self.epsilon_decay_rate = -math.log(self.epsilon_end / self.epsilon_start) / self.total_steps_7_episodes
+        self.global_step = 0
+        print(f"Per-step epsilon decay initialized: {self.epsilon_start:.3f} → {self.epsilon_end:.3f} over ~{self.total_steps_7_episodes:,} steps")
+        
     def update_target_model(self):
         """Copy weights from main model to target model"""
         self.target_network.load_state_dict(self.q_network.state_dict())
@@ -1372,7 +1392,9 @@ class TradingAgent:
         if self.update_counter % Config.UPDATE_TARGET_EVERY == 0:
             self.update_target_model()
         
-        # Removed per-step epsilon decay - moved to episode level
+        # Per-step exponential epsilon decay
+        self.global_step += 1
+        self.epsilon = max(self.epsilon_end, self.epsilon_start * math.exp(-self.epsilon_decay_rate * self.global_step))
         
         # Reset noise in networks if using NoisyNet
         if Config.USE_NOISY_NET and hasattr(self.q_network, 'reset_noise'):
@@ -1722,13 +1744,15 @@ def train_agent(agent: TradingAgent, env: TradingEnvironment, df_train: pd.DataF
         else:
             no_improvement_count += 1
         
-        # Cap exploration and anneal parameters
-        # Accelerate early exploitation for first 5 episodes
-        if episode < 5:
-            agent.epsilon = max(Config.EPSILON_MIN, agent.epsilon * 0.90)  # Faster decay early
-        else:
-            agent.epsilon = max(Config.EPSILON_MIN, agent.epsilon * 0.99)  # Normal decay later
-        print(f"  Current Epsilon: {agent.epsilon:.4f}")
+        # Epsilon is now decayed per-step in the replay() method
+        # Calculate expected epsilon for verification
+        expected_eps_at_ep1 = agent.epsilon_start * math.exp(-agent.epsilon_decay_rate * agent.total_steps_7_episodes / 7)
+        expected_eps_at_ep3 = agent.epsilon_start * math.exp(-agent.epsilon_decay_rate * agent.total_steps_7_episodes * 3 / 7)
+        expected_eps_at_ep7 = agent.epsilon_start * math.exp(-agent.epsilon_decay_rate * agent.total_steps_7_episodes)
+        
+        print(f"  Current Epsilon: {agent.epsilon:.4f} (Global Step: {agent.global_step:,})")
+        if episode == 0:
+            print(f"  Expected ε trajectory: Episode 1 end: ~{expected_eps_at_ep1:.3f}, Episode 3 end: ~{expected_eps_at_ep3:.3f}, Episode 7 end: ~{expected_eps_at_ep7:.3f}")
         
         # Anneal PER beta: linear from 0.4 to 1.0 based on total steps
         total_steps = (episode + 1) * window_length
