@@ -391,6 +391,17 @@ class TradingEnvironment:
         self.state_size = len(feature_cols) * Config.WINDOW_SIZE + 9  # +9 for enhanced position info
         # Pre-convert feature data to tensor for fast access
         self.feature_tensor = torch.from_numpy(df[feature_cols].values).float().to(device)
+        
+        # Cache frequently accessed columns as numpy arrays for speed
+        self.close_prices = df['Close'].values
+        self.atr_values = df['ATR'].values
+        self.composite_signals = df['Composite_Signal'].values
+        self.trending_values = df['Trending'].values
+        self.nti_confidence = df['NTI_Confidence'].values if 'NTI_Confidence' in df else None
+        
+        # Pre-allocate position info tensor for reuse
+        self.pos_info_buffer = torch.zeros(9, device=device, dtype=torch.float32)
+        
         self.reset()
         
     def reset(self):
@@ -414,21 +425,22 @@ class TradingEnvironment:
         # Get windowed features directly from MPS tensor - no CPU transfer!
         window = self.feature_tensor[index-window_size+1:index+1]  # [W, F] on MPS
         
-        # Build position info tensor directly on device
-        current_atr = self.df['ATR'].iloc[index] if index < len(self.df) else 0.0
+        # Use cached numpy array instead of pandas iloc
+        current_atr = self.atr_values[index] if index < len(self.atr_values) else 0.0
         atr_ratio = (current_atr / self.atr_entry) if self.atr_entry and self.atr_entry > 0 else 1.0
         
-        pos_info = torch.tensor([
-            1.0 if self.position else 0.0,
-            self.position['unrealized_pnl'] / self.initial_balance if self.position else 0.0,
-            self.position['holding_time'] / 100.0 if self.position else 0.0,
-            (self.balance / self.initial_balance - 1.0),
-            self.max_drawdown,
-            len(self.trade_history) / 100.0,
-            self.get_win_rate(),
-            self.atr_entry if self.atr_entry else current_atr,  # ATR at entry
-            atr_ratio  # Current ATR / Entry ATR ratio
-        ], device=device, dtype=torch.float32)
+        # Reuse pre-allocated buffer instead of creating new tensor
+        self.pos_info_buffer[0] = 1.0 if self.position else 0.0
+        self.pos_info_buffer[1] = self.position['unrealized_pnl'] / self.initial_balance if self.position else 0.0
+        self.pos_info_buffer[2] = self.position['holding_time'] / 100.0 if self.position else 0.0
+        self.pos_info_buffer[3] = (self.balance / self.initial_balance - 1.0)
+        self.pos_info_buffer[4] = self.max_drawdown
+        self.pos_info_buffer[5] = len(self.trade_history) / 100.0
+        self.pos_info_buffer[6] = self.get_win_rate()
+        self.pos_info_buffer[7] = self.atr_entry if self.atr_entry else current_atr
+        self.pos_info_buffer[8] = atr_ratio
+        
+        pos_info = self.pos_info_buffer
         
         # Use JIT-compiled state builder
         state = build_state(window, pos_info)
@@ -539,11 +551,11 @@ class TradingEnvironment:
                         'entry_index': index,
                         'unrealized_pnl': 0,
                         'holding_time': 0,
-                        'entry_signal_strength': self.df['Composite_Signal'].iloc[index]
+                        'entry_signal_strength': self.composite_signals[index]
                     }
                     
                     # Store ATR at entry
-                    self.atr_entry = self.df['ATR'].iloc[index]
+                    self.atr_entry = self.atr_values[index]
                     
                     info['position_opened'] = 'long'
                     
@@ -566,11 +578,11 @@ class TradingEnvironment:
                         'entry_index': index,
                         'unrealized_pnl': 0,
                         'holding_time': 0,
-                        'entry_signal_strength': self.df['Composite_Signal'].iloc[index]
+                        'entry_signal_strength': self.composite_signals[index]
                     }
                     
                     # Store ATR at entry
-                    self.atr_entry = self.df['ATR'].iloc[index]
+                    self.atr_entry = self.atr_values[index]
                     
                     info['position_opened'] = 'long'
                     
@@ -591,11 +603,11 @@ class TradingEnvironment:
                         'entry_index': index,
                         'unrealized_pnl': 0,
                         'holding_time': 0,
-                        'entry_signal_strength': self.df['Composite_Signal'].iloc[index]
+                        'entry_signal_strength': self.composite_signals[index]
                     }
                     
                     # Store ATR at entry
-                    self.atr_entry = self.df['ATR'].iloc[index]
+                    self.atr_entry = self.atr_values[index]
                     
                     info['position_opened'] = 'short'
                     
@@ -618,11 +630,11 @@ class TradingEnvironment:
                         'entry_index': index,
                         'unrealized_pnl': 0,
                         'holding_time': 0,
-                        'entry_signal_strength': self.df['Composite_Signal'].iloc[index]
+                        'entry_signal_strength': self.composite_signals[index]
                     }
                     
                     # Store ATR at entry
-                    self.atr_entry = self.df['ATR'].iloc[index]
+                    self.atr_entry = self.atr_values[index]
                     
                     info['position_opened'] = 'short'
         
@@ -646,11 +658,21 @@ class TradingEnvironment:
         atr_scale = max(current_atr, 1e-5)
         
         # Scale reward by ATR and position size for normalization
-        reward = 100 * nav_delta / (atr_scale * Config.POSITION_SIZE)
+        # Option: Sharper reward scaling with larger multiplier
+        reward = 200 * nav_delta / (atr_scale * Config.POSITION_SIZE)
         
-        # Optional exit-shaping bonus for early close
+        # Enhanced reward shaping
+        # 1. Boost early-close bonus
         if info.get('exit_type') == 'early_close':
-            reward += 0.05
+            reward += 0.2  # Increased from 0.05
+            
+        # 2. Penalize over-trading
+        if info.get('exit_type'):
+            reward -= 0.01  # Small trade cost
+            
+        # 3. Holding fee on losers
+        if self.position and self.position['unrealized_pnl'] < 0:
+            reward -= 0.005
         
         return reward, info
     
@@ -660,10 +682,10 @@ class TradingEnvironment:
     
     def _check_entry_conditions(self, direction: int) -> bool:
         """Check if entry conditions are met"""
-        # Get current signals
-        composite_signal = self.df['Composite_Signal'].iloc[self.current_step]
-        nti_confidence = self.df['NTI_Confidence'].iloc[self.current_step]
-        trending = self.df['Trending'].iloc[self.current_step]
+        # Get current signals - use cached arrays
+        composite_signal = self.composite_signals[self.current_step]
+        nti_confidence = self.nti_confidence[self.current_step] if self.nti_confidence is not None else 0.0
+        trending = self.trending_values[self.current_step]
         
         if direction == 1:  # Long
             return (composite_signal > 0.3 and nti_confidence > 0.6) or \
@@ -923,9 +945,9 @@ class TradingAgent:
         loss.backward()
         torch.nn.utils.clip_grad_norm_(self.q_network.parameters(), 1.0)
         
-        # MPS synchronization for Apple devices
-        if device.type == 'mps':
-            torch.mps.synchronize()
+        # Remove MPS sync for speed - only enable if deadlock occurs
+        # if device.type == 'mps':
+        #     torch.mps.synchronize()
             
         self.optimizer.step()
         
@@ -955,21 +977,18 @@ def train_agent(agent: TradingAgent, env: TradingEnvironment, df_train: pd.DataF
     # Setup plotting directory
     os.makedirs('plots', exist_ok=True)
     
-    # Thread pool for async HTML saving
-    executor = ThreadPoolExecutor(max_workers=2)
+    # Store plotting data for deferred processing
+    plotting_data = []
     
-    def async_save_html(fig, path):
-        """Save Plotly figure as HTML asynchronously"""
-        fig.write_html(path)    
     for episode in range(episodes):
         # Reset environment
         env.reset()
         
         # Sequential first-epoch training for coherent experience
         if episode == 0:
-            # First episode: use full chronological data
+            # First episode: use chronological data but cap at 20k for faster training
             start_idx = window_size
-            end_idx = min(len(df_train) - 1, start_idx + 50000)  # Cap at 50k bars
+            end_idx = min(len(df_train) - 1, start_idx + 20000)  # Reduced from 50k
             window_length = end_idx - start_idx
         else:
             # Subsequent episodes: sample random windows
@@ -992,13 +1011,20 @@ def train_agent(agent: TradingAgent, env: TradingEnvironment, df_train: pd.DataF
         # Track position history for visualization
         position_history = []
         
+        # Batch training accumulator
+        training_step_counter = 0
+        BATCH_FREQUENCY = 4  # Train every 4 steps instead of every step
+        
+        # Cache frequently accessed data
+        composite_signals_train = df_train['Composite_Signal'].values
+        
         # Training loop
         pbar = tqdm(range(start_idx, end_idx - 1), 
                    desc=f"Episode {episode+1}/{episodes}")
         
         for t in pbar:
-            # P0-3: Get composite signal for action masking
-            composite_signal = df_train['Composite_Signal'].iloc[t]
+            # Get composite signal for action masking - use cached array
+            composite_signal = composite_signals_train[t]
             
             # Agent takes action with signal-based masking
             action = agent.act(state, composite_signal, has_position=bool(env.position))
@@ -1029,9 +1055,11 @@ def train_agent(agent: TradingAgent, env: TradingEnvironment, df_train: pd.DataF
             agent.remember(state, action, reward, next_state, done)
             state = next_state
             
-            # Train on mini-batch
-            if len(agent.memory.buffer) > Config.BATCH_SIZE:
+            # Batch training - only train every BATCH_FREQUENCY steps
+            training_step_counter += 1
+            if training_step_counter >= BATCH_FREQUENCY and len(agent.memory.buffer) > Config.BATCH_SIZE:
                 _ = agent.replay(Config.BATCH_SIZE)
+                training_step_counter = 0
             
             # Update progress bar with USD profit
             if env.position:
@@ -1115,16 +1143,19 @@ def train_agent(agent: TradingAgent, env: TradingEnvironment, df_train: pd.DataF
             no_improvement_count += 1
         
         # Cap exploration and anneal parameters
-        # Epsilon decay: more aggressive after each episode
-        agent.epsilon = max(0.05, agent.epsilon * 0.99)
+        # Accelerate early exploitation for first 5 episodes
+        if episode < 5:
+            agent.epsilon = max(0.05, agent.epsilon * 0.90)  # Faster decay early
+        else:
+            agent.epsilon = max(0.05, agent.epsilon * 0.99)  # Normal decay later
         print(f"  Current Epsilon: {agent.epsilon:.4f}")
         
         # Anneal PER beta: linear from 0.4 to 1.0 based on total steps
         total_steps = (episode + 1) * window_length
         agent.beta = min(1.0, 0.4 + 0.8 * total_steps / 80000)
         
-        # Create interactive Plotly chart for episode
-        if len(trades) > 0 and episode % 1 == 0:  # Save every 1th episode to avoid too many files
+        # Defer heavy plotting - only create charts every 5 episodes
+        if len(trades) > 0 and episode % 5 == 0:
             # Get price series for this window
             prices = df_train['Close'].iloc[start_idx:end_idx].values
             
@@ -1306,15 +1337,17 @@ def train_agent(agent: TradingAgent, env: TradingEnvironment, df_train: pd.DataF
             # Note: Plotly doesn't support 'layer' property for scatter traces
             # Position fill transparency already ensures markers are visible
             
-            # Save HTML asynchronously
-            executor.submit(async_save_html, fig, f'plots/episode_{episode+1:03d}.html')
+            # Store figure data instead of saving immediately
+            plotting_data.append((fig, f'plots/episode_{episode+1:03d}.html'))
         
         if no_improvement_count >= 30:
             print(f"\nEarly stopping: No improvement for 30 episodes")
             break
     
-    # Cleanup
-    executor.shutdown(wait=True)
+    # Save all plots after training completes
+    print("\nSaving training visualizations...")
+    for fig, path in plotting_data:
+        fig.write_html(path)
     
     return episode_rewards, episode_profits, episode_sharpes
 
@@ -1384,9 +1417,12 @@ def main(fast_mode: bool = False):
     state = env_test.get_state(Config.WINDOW_SIZE, Config.WINDOW_SIZE)
     test_trades = []
     
+    # Cache test data for speed
+    composite_signals_test = df_test['Composite_Signal'].values
+    
     for t in tqdm(range(Config.WINDOW_SIZE, len(df_test) - 1)):
-        # Get composite signal for action masking
-        composite_signal = df_test['Composite_Signal'].iloc[t]
+        # Get composite signal for action masking - use cached array
+        composite_signal = composite_signals_test[t]
         
         # Agent takes action with signal-based masking
         action = agent.act(state, composite_signal, has_position=bool(env_test.position))
