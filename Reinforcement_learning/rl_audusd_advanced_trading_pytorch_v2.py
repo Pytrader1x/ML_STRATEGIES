@@ -103,7 +103,7 @@ class Config:
     COOLDOWN_BARS = 0  # No cooldown with Close action 
     
     # N-step returns
-    N_STEPS = 4  # Number of steps for n-step returns
+    N_STEPS = 3  # Number of steps for n-step returns (reduced for faster startup)
     
     # PER hyperparameters - IMPROVED
     PER_ALPHA = 0.75  # Increased from 0.6 for stronger prioritization
@@ -141,8 +141,8 @@ class Config:
     LSTM_NUM_LAYERS = 2  # Number of LSTM layers
     
     # Performance optimization
-    USE_TORCH_COMPILE = True  # Enable torch.compile for faster execution
-    USE_AMP = True  # Enable Automatic Mixed Precision (AMP)
+    USE_TORCH_COMPILE = True  # Enable torch.compile for faster execution (auto-disabled on MPS)
+    USE_AMP = False  # Enable Automatic Mixed Precision (AMP) - disabled on MPS
 
 # %% Enhanced Data Loader
 class DataLoader:
@@ -981,10 +981,14 @@ class SumTree:
     
     def __init__(self, capacity: int):
         self.capacity = capacity
-        self.tree = np.zeros(2 * capacity - 1)
-        self.data = np.zeros(capacity, dtype=object)
+        self.tree = np.zeros(2 * capacity - 1, dtype=np.float32)
+        self.data = [None] * capacity  # Use list instead of numpy array to avoid type issues
         self.write = 0
         self.n_entries = 0
+        
+        # Initialize leaf nodes with small non-zero values to avoid NaN
+        # Leaf nodes start at index capacity-1
+        self.tree[capacity-1:] = 1e-5
         
     def _propagate(self, idx: int, change: float):
         """Propagate priority change up the tree"""
@@ -1008,7 +1012,17 @@ class SumTree:
     
     def total(self) -> float:
         """Get total priority"""
-        return self.tree[0]
+        total = self.tree[0]
+        # Check for NaN and reset if necessary
+        if np.isnan(total):
+            print("WARNING: Total priority is NaN, resetting tree")
+            # Reset all priorities to small value
+            self.tree[:] = 1e-5
+            # Recalculate internal nodes
+            for i in range(self.capacity - 1, 2 * self.capacity - 1):
+                self._propagate(i, 0)
+            total = self.tree[0]
+        return total
     
     def add(self, priority: float, data: Experience):
         """Add new experience with priority"""
@@ -1026,6 +1040,8 @@ class SumTree:
     
     def update(self, idx: int, priority: float):
         """Update priority of existing node"""
+        # Ensure priority is never zero to avoid NaN
+        priority = max(priority, 1e-5)
         change = priority - self.tree[idx]
         self.tree[idx] = priority
         self._propagate(idx, change)
@@ -1035,16 +1051,24 @@ class SumTree:
         idx = self._retrieve(0, s)
         dataIdx = idx - self.capacity + 1
         
-        return idx, self.tree[idx], self.data[dataIdx]
+        # Ensure dataIdx is within bounds and handle circular buffer wrap
+        if 0 <= dataIdx < self.capacity:
+            # Check if this position has been written to
+            if dataIdx < self.n_entries or (self.n_entries == self.capacity and self.data[dataIdx] is not None):
+                return idx, self.tree[idx], self.data[dataIdx]
+        
+        # Return None experience if out of bounds or not yet written
+        return idx, 0.0, None
 
 
 class PrioritizedReplayBuffer:
-    """Prioritized experience replay buffer with O(log n) operations"""
+    """Prioritized experience replay buffer - simplified implementation"""
     
     def __init__(self, capacity: int, alpha: float = Config.PER_ALPHA):
-        self.tree = SumTree(capacity)
         self.capacity = capacity
         self.alpha = alpha
+        self.buffer = deque(maxlen=capacity)
+        self.priorities = deque(maxlen=capacity)
         self.max_priority = 1.0
         self.beta = Config.PER_BETA_START
         self.beta_increment_per_sampling = 0.001
@@ -1058,47 +1082,61 @@ class PrioritizedReplayBuffer:
             priority = 1.0  # Uniform priority during warmup
         else:
             priority = self.max_priority ** self.alpha
-        self.tree.add(priority, experience)
+        
+        self.buffer.append(experience)
+        self.priorities.append(priority)
         
     def sample(self, batch_size: int, beta: float = 0.4) -> Tuple:
-        """Sample batch with priority-based probabilities - O(log n)"""
+        """Sample batch with priority-based probabilities"""
+        n = len(self.buffer)
+        
+        # Ensure we have enough experiences to sample
+        if n < batch_size:
+            raise ValueError(f"Not enough experiences in buffer: {n} < {batch_size}")
+        
+        # Convert to numpy for efficient sampling
+        priorities = np.array(self.priorities, dtype=np.float32)
+        
+        # Ensure no negative or zero priorities
+        priorities = np.maximum(priorities, 1e-7)
+        
+        # Calculate probabilities
+        probabilities = priorities ** self.alpha
+        probabilities = probabilities / probabilities.sum()
+        
+        # Ensure probabilities are valid (no NaN or inf)
+        if np.any(np.isnan(probabilities)) or np.any(np.isinf(probabilities)):
+            # Fallback to uniform sampling
+            probabilities = np.ones(n, dtype=np.float32) / n
+        
+        # Sample indices
+        indices = np.random.choice(n, batch_size, p=probabilities)
+        
         experiences = []
-        indices = []
-        priorities = []
-        segment = self.tree.total() / batch_size
+        sampled_priorities = []
         
-        for i in range(batch_size):
-            a = segment * i
-            b = segment * (i + 1)
-            s = random.uniform(a, b)
-            idx, priority, experience = self.tree.get(s)
-            
-            priorities.append(priority)
-            experiences.append(experience)
-            indices.append(idx)
+        for idx in indices:
+            experiences.append(self.buffer[idx])
+            sampled_priorities.append(priorities[idx])
         
-        sampling_probabilities = np.array(priorities) / self.tree.total()
-        is_weight = np.power(self.tree.n_entries * sampling_probabilities, -beta)
+        # Calculate importance sampling weights
+        sampling_probabilities = (priorities[indices] / priorities.sum()) ** self.alpha
+        is_weight = (n * sampling_probabilities) ** (-beta)
         is_weight /= is_weight.max()
         
         return experiences, indices, torch.FloatTensor(is_weight).to(device)
     
     def update_priorities(self, indices: List[int], priorities: np.ndarray):
-        """Update priorities based on TD error - O(log n)"""
+        """Update priorities based on TD error"""
         for idx, priority in zip(indices, priorities):
             priority = (priority + 1e-6) ** self.alpha
             self.max_priority = max(self.max_priority, priority)
-            self.tree.update(idx, priority)
+            if 0 <= idx < len(self.priorities):
+                self.priorities[idx] = priority
     
-    @property
-    def buffer(self):
-        """Compatibility property for buffer length check"""
-        class BufferWrapper:
-            def __init__(self, n_entries):
-                self.n_entries = n_entries
-            def __len__(self):
-                return self.n_entries
-        return BufferWrapper(self.tree.n_entries)
+    def __len__(self):
+        """Return buffer length"""
+        return len(self.buffer)
 
 class TradingAgent:
     """Enhanced RL Trading Agent with advanced features"""
@@ -1121,27 +1159,35 @@ class TradingAgent:
         
         # Neural networks - use CNN version
         self.use_cnn = True  # Flag to enable CNN
+        self.use_c51 = Config.USE_C51  # Flag for C51 distributional RL
+        
         if self.use_cnn:
             num_features = len([col for col in ['Close', 'Returns', 'High_Low_Pct', 'Close_Open_Pct',
                                                'ATR_Pct', 'Close_to_SMA20', 'Close_to_SMA50',
                                                'RSI', 'NTI_Direction', 'NTI_Confidence', 'NTI_SlopePower',
                                                'NTI_ReversalRisk', 'MB_Bias', 'IC_Regime', 'IC_Confidence',
                                                'IC_Signal', 'Trending', 'Composite_Signal'] if True])  # 18 features
-            self.q_network = DuelingDQN_CNN(state_size, action_size, num_features, Config.WINDOW_SIZE).to(device)
-            self.target_network = DuelingDQN_CNN(state_size, action_size, num_features, Config.WINDOW_SIZE).to(device)
+            if self.use_c51:
+                self.q_network = DuelingC51DQN_CNN(state_size, action_size, num_features, Config.WINDOW_SIZE).to(device)
+                self.target_network = DuelingC51DQN_CNN(state_size, action_size, num_features, Config.WINDOW_SIZE).to(device)
+            else:
+                self.q_network = DuelingDQN_CNN(state_size, action_size, num_features, Config.WINDOW_SIZE).to(device)
+                self.target_network = DuelingDQN_CNN(state_size, action_size, num_features, Config.WINDOW_SIZE).to(device)
         else:
             self.q_network = DuelingDQN(state_size, action_size).to(device)
             self.target_network = DuelingDQN(state_size, action_size).to(device)
         self.update_target_model()
         
-        # Compile models for performance if enabled
-        if Config.USE_TORCH_COMPILE and hasattr(torch, 'compile'):
+        # Compile models for performance if enabled (skip on MPS due to compatibility issues)
+        if Config.USE_TORCH_COMPILE and hasattr(torch, 'compile') and device.type != 'mps':
             try:
                 self.q_network = torch.compile(self.q_network, mode='reduce-overhead')
                 self.target_network = torch.compile(self.target_network, mode='reduce-overhead')
                 print("Models compiled with torch.compile")
-            except:
-                print("torch.compile not available or failed, using regular models")
+            except Exception as e:
+                print(f"torch.compile failed: {e}, using regular models")
+        elif device.type == 'mps':
+            print("Skipping torch.compile on MPS device due to compatibility issues")
         
         # Optimizer
         self.optimizer = optim.Adam(self.q_network.parameters(), 
@@ -1150,7 +1196,7 @@ class TradingAgent:
             self.optimizer, mode='max', factor=0.5, patience=10
         )
         
-        # AMP scaler for mixed precision training
+        # AMP scaler for mixed precision training (only on CUDA)
         self.scaler = torch.amp.GradScaler('cuda') if Config.USE_AMP and device.type == 'cuda' else None
         
         self.update_counter = 0
@@ -1166,6 +1212,13 @@ class TradingAgent:
             state = torch.tensor(state, device=device, dtype=torch.float32)
         if not isinstance(next_state, torch.Tensor):
             next_state = torch.tensor(next_state, device=device, dtype=torch.float32)
+        
+        # For early training, push both 1-step and n-step experiences
+        # This ensures we have enough data to start training quickly
+        if len(self.memory) < Config.BATCH_SIZE * 2:
+            # Push immediate experience for bootstrapping
+            immediate_exp = Experience(state, action, reward, next_state, done)
+            self.memory.push(immediate_exp)
         
         # Add to n-step buffer
         self.n_step_buffer.append(Experience(state, action, reward, next_state, done))
@@ -1238,7 +1291,9 @@ class TradingAgent:
     
     def replay(self, batch_size: int):
         """Train model on batch of experiences with prioritized replay"""
-        if len(self.memory.buffer) < batch_size:
+        # Ensure we have enough experiences (considering n-step delay)
+        min_required = max(batch_size, Config.N_STEPS * 10)
+        if len(self.memory) < min_required:
             return
         
         # Sample from memory
@@ -1320,7 +1375,7 @@ class TradingAgent:
         # Removed per-step epsilon decay - moved to episode level
         
         # Reset noise in networks if using NoisyNet
-        if Config.USE_NOISY_NET:
+        if Config.USE_NOISY_NET and hasattr(self.q_network, 'reset_noise'):
             self.q_network.reset_noise()
             self.target_network.reset_noise()
         
@@ -1331,6 +1386,9 @@ class TradingAgent:
     
     def _process_n_step_buffer(self):
         """Process n-step buffer to compute n-step returns"""
+        if not self.n_step_buffer:
+            return
+            
         # Get the first transition
         first_exp = self.n_step_buffer[0]
         
@@ -1344,11 +1402,7 @@ class TradingAgent:
             
             if exp.done:
                 # Episode ended, use this as final state
-                n_step_exp = NStepExperience(
-                    first_exp.state, first_exp.action, n_step_reward,
-                    exp.next_state, True, i + 1
-                )
-                # Convert back to regular experience for compatibility
+                # Convert to regular experience for compatibility
                 final_exp = Experience(
                     first_exp.state, first_exp.action, n_step_reward,
                     exp.next_state, True
@@ -1362,10 +1416,6 @@ class TradingAgent:
         # If buffer is full (n steps), create n-step experience
         if len(self.n_step_buffer) == Config.N_STEPS:
             last_exp = self.n_step_buffer[-1]
-            n_step_exp = NStepExperience(
-                first_exp.state, first_exp.action, n_step_reward,
-                last_exp.next_state, False, Config.N_STEPS
-            )
             # Convert to regular experience
             final_exp = Experience(
                 first_exp.state, first_exp.action, n_step_reward,
@@ -1548,7 +1598,9 @@ def train_agent(agent: TradingAgent, env: TradingEnvironment, df_train: pd.DataF
                 local_buffer = []
                 
                 # 3. Run a concentrated training phase
-                if len(agent.memory.buffer) > Config.BATCH_SIZE:
+                # Ensure we have enough experiences before training (considering n-step delay)
+                min_required = max(Config.BATCH_SIZE, Config.N_STEPS * 10)
+                if len(agent.memory) > min_required:
                     pbar.set_description(f"Episode {episode+1}/{episodes} [Training...]")
                     for _ in range(TRAIN_ITERATIONS):
                         agent.replay(Config.BATCH_SIZE)
@@ -1588,6 +1640,11 @@ def train_agent(agent: TradingAgent, env: TradingEnvironment, df_train: pd.DataF
         })
         pbar.refresh()  # Force final refresh
         pbar.close()
+        
+        # Close any open position before computing summary
+        if env.position:
+            final_price = df_train.iloc[end_idx - 1]['Close']
+            env._close_position(final_price, 'manual')
         
         # Episode summary with USD profits
         final_profit_usd = env.balance - env.initial_balance
@@ -1645,7 +1702,8 @@ def train_agent(agent: TradingAgent, env: TradingEnvironment, df_train: pd.DataF
         if trades:
             print(f"  Win Rate: {win_rate:.1f}%")
             print(f"  Avg Win: ${avg_win:.2f}, Avg Loss: ${avg_loss:.2f}")
-            print(f"  Exit Types: TP={pct_tp:.1f}%, SL={pct_sl:.1f}%, Manual={pct_manual:.1f}%, Early={pct_early:.1f}%")
+            total_exit_pct = pct_tp + pct_sl + pct_manual + pct_early
+            print(f"  Exit Types: TP={pct_tp:.1f}%, SL={pct_sl:.1f}%, Manual={pct_manual:.1f}%, Early={pct_early:.1f}% (Total: {total_exit_pct:.1f}%)")
             print(f"  Avg Drawdown: {avg_drawdown:.1f}%")
         
         episode_rewards.append(total_reward)
@@ -2094,7 +2152,8 @@ def main(fast_mode: bool = False):
         print(f"Win Rate: {test_win_rate:.1f}%")
         print(f"Sharpe Ratio (Daily): {sharpe:.2f}")
         print(f"Max Drawdown: {max_dd:.1f}%")
-        print(f"Exit Types: TP={test_pct_tp:.1f}%, SL={test_pct_sl:.1f}%, Manual={test_pct_manual:.1f}%, Early={test_pct_early:.1f}%")
+        total_test_exit_pct = test_pct_tp + test_pct_sl + test_pct_manual + test_pct_early
+        print(f"Exit Types: TP={test_pct_tp:.1f}%, SL={test_pct_sl:.1f}%, Manual={test_pct_manual:.1f}%, Early={test_pct_early:.1f}% (Total: {total_test_exit_pct:.1f}%)")
         print(f"Avg Drawdown per Trade: {test_avg_drawdown:.1f}%")
     else:
         print("\nNo trades executed during testing")
