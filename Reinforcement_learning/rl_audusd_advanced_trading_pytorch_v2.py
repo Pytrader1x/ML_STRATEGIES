@@ -20,6 +20,13 @@ from tqdm import tqdm
 from typing import List, Tuple, Dict, Optional
 from concurrent.futures import ThreadPoolExecutor
 import warnings
+import time
+try:
+    from torch.utils.tensorboard import SummaryWriter
+    TENSORBOARD_AVAILABLE = True
+except ImportError:
+    TENSORBOARD_AVAILABLE = False
+    print("TensorBoard not available. Install with: pip install tensorboard")
 warnings.filterwarnings('ignore')
 
 # Add parent directory to path for imports
@@ -456,10 +463,10 @@ class TradingEnvironment:
     def calculate_adaptive_sl_tp(self, entry_price: float, direction: int, 
                                 conservative: bool = False) -> Tuple[float, float]:
         """Calculate adaptive SL/TP based on ATR and market conditions"""
-        current_atr = self.df['ATR'].iloc[self.current_step]
+        current_atr = self.atr_values[self.current_step]
         
         # Adjust multipliers based on market regime
-        if self.df['Trending'].iloc[self.current_step] == 1:
+        if self.trending_values[self.current_step] == 1:
             # Trending market - wider stops, bigger targets
             sl_mult = Config.BASE_SL_ATR_MULT * 1.2
             tp_mult = Config.BASE_TP_ATR_MULT * 1.5
@@ -495,7 +502,7 @@ class TradingEnvironment:
         - Pure alignment with actual trading profitability
         """
         self.current_step = index
-        current_price = self.df['Close'].iloc[index]
+        current_price = self.close_prices[index]
         info = {'action': action, 'price': current_price}
         
         # Calculate NAV before action (B_{t-1} + U_{t-1})
@@ -653,8 +660,8 @@ class TradingEnvironment:
         # Risk-scaled reward normalization
         nav_delta = nav_after - nav_before
         
-        # Get current ATR for scaling
-        current_atr = self.df['ATR'].iloc[index] if index < len(self.df) else 0.0
+        # Get current ATR for scaling - use cached array
+        current_atr = self.atr_values[index] if index < len(self.atr_values) else 0.0
         atr_scale = max(current_atr, 1e-5)
         
         # Scale reward by ATR and position size for normalization
@@ -965,7 +972,8 @@ class TradingAgent:
 
 # %% Training Functions
 def train_agent(agent: TradingAgent, env: TradingEnvironment, df_train: pd.DataFrame,
-                window_size: int, episodes: int, fast_mode: bool = False):
+                window_size: int, episodes: int, fast_mode: bool = False,
+                writer=None, activations=None):
     """Enhanced training loop with better monitoring and proper Sharpe calculation"""
     
     episode_rewards = []
@@ -1018,9 +1026,11 @@ def train_agent(agent: TradingAgent, env: TradingEnvironment, df_train: pd.DataF
         # Cache frequently accessed data
         composite_signals_train = df_train['Composite_Signal'].values
         
-        # Training loop
+        # Training loop with ETA tracking
+        start_time_episode = time.time()
         pbar = tqdm(range(start_idx, end_idx - 1), 
-                   desc=f"Episode {episode+1}/{episodes}")
+                   desc=f"Episode {episode+1}/{episodes}",
+                   miniters=100)  # Limit tqdm redraws for performance
         
         for t in pbar:
             # Get composite signal for action masking - use cached array
@@ -1061,12 +1071,17 @@ def train_agent(agent: TradingAgent, env: TradingEnvironment, df_train: pd.DataF
                 _ = agent.replay(Config.BATCH_SIZE)
                 training_step_counter = 0
             
-            # Update progress bar with USD profit
-            if env.position:
+            # Update progress bar with USD profit and ETA
+            if (t - start_idx) % 100 == 0 and t > start_idx:
+                elapsed = time.time() - start_time_episode
+                avg_per_bar = elapsed / (t - start_idx + 1)
+                remaining_bars = end_idx - 1 - t
+                eta_seconds = remaining_bars * avg_per_bar
                 pbar.set_postfix({
                     'Profit': f"${env.balance - env.initial_balance:,.0f}",
                     'Trades': len(env.trade_history),
-                    'ε': f"{agent.epsilon:.3f}"
+                    'ε': f"{agent.epsilon:.3f}",
+                    'ETA': f"{eta_seconds/60:.1f}m"
                 })
         
         # Episode summary with USD profits
@@ -1153,6 +1168,51 @@ def train_agent(agent: TradingAgent, env: TradingEnvironment, df_train: pd.DataF
         # Anneal PER beta: linear from 0.4 to 1.0 based on total steps
         total_steps = (episode + 1) * window_length
         agent.beta = min(1.0, 0.4 + 0.8 * total_steps / 80000)
+        
+        # TensorBoard logging
+        if writer is not None:
+            ep_num = episode + 1
+            
+            # Log scalar metrics
+            writer.add_scalar('Profit/Final_Profit_USD', final_profit_usd, ep_num)
+            writer.add_scalar('Profit/Final_Profit_Pct', final_profit_pct, ep_num)
+            writer.add_scalar('Performance/Sharpe_Ratio', sharpe, ep_num)
+            writer.add_scalar('Performance/Win_Rate', win_rate, ep_num)
+            writer.add_scalar('Performance/Total_Trades', len(trades), ep_num)
+            writer.add_scalar('Performance/Max_Drawdown', env.max_drawdown * 100, ep_num)
+            writer.add_scalar('Hyperparameters/Epsilon', agent.epsilon, ep_num)
+            writer.add_scalar('Hyperparameters/Beta', agent.beta, ep_num)
+            writer.add_scalar('Hyperparameters/Learning_Rate', agent.optimizer.param_groups[0]['lr'], ep_num)
+            
+            # Log exit type percentages
+            if trades:
+                writer.add_scalar('ExitTypes/TP_Percentage', pct_tp, ep_num)
+                writer.add_scalar('ExitTypes/SL_Percentage', pct_sl, ep_num)
+                writer.add_scalar('ExitTypes/Manual_Percentage', pct_manual, ep_num)
+                writer.add_scalar('Trades/Avg_Win', avg_win, ep_num)
+                writer.add_scalar('Trades/Avg_Loss', avg_loss, ep_num)
+            
+            # Log weight histograms
+            for name, param in agent.q_network.named_parameters():
+                if 'weight' in name:
+                    writer.add_histogram(f'Weights/{name}', param, ep_num)
+                if 'bias' in name:
+                    writer.add_histogram(f'Biases/{name}', param, ep_num)
+            
+            # Log activation histograms
+            if activations is not None and state is not None:
+                # Do one forward pass to capture activations
+                agent.q_network.eval()
+                with torch.no_grad():
+                    _ = agent.q_network(state.unsqueeze(0) if state.dim() == 1 else state[:1])
+                agent.q_network.train()
+                
+                # Log captured activations
+                for act_name, act_tensor in activations.items():
+                    writer.add_histogram(f'Activations/{act_name}', act_tensor, ep_num)
+                    # Also log percentage of dead neurons (zeros)
+                    dead_neurons_pct = (act_tensor == 0).float().mean().item() * 100
+                    writer.add_scalar(f'Activations/{act_name}_dead_pct', dead_neurons_pct, ep_num)
         
         # Defer heavy plotting - only create charts every 5 episodes
         if len(trades) > 0 and episode % 5 == 0:
@@ -1394,11 +1454,39 @@ def main(fast_mode: bool = False):
     print(f"\nState size: {state_size}")
     print(f"Action size: {Config.ACTION_SIZE}")
     
+    # Initialize TensorBoard if available
+    writer = None
+    activations = None
+    if TENSORBOARD_AVAILABLE:
+        writer = SummaryWriter(f'runs/audusd_agent_v2_{time.strftime("%Y%m%d_%H%M%S")}')
+        
+        # Log model graph (optional)
+        dummy_state = torch.zeros((1, state_size), device=device)
+        try:
+            writer.add_graph(agent.q_network, dummy_state)
+        except:
+            print("Could not log model graph to TensorBoard")
+        
+        # Register forward hooks to capture activations
+        activations = {}
+        def get_activation(name):
+            def hook(model, input, output):
+                activations[name] = output.detach()
+            return hook
+        
+        # Attach hooks to key layers
+        if agent.use_cnn:
+            agent.q_network.conv[1].register_forward_hook(get_activation('conv1_relu'))
+            agent.q_network.conv[4].register_forward_hook(get_activation('conv2_relu'))
+        agent.q_network.value[0].register_forward_hook(get_activation('value_fc'))
+        agent.q_network.advantage[0].register_forward_hook(get_activation('advantage_fc'))
+    
     # Start training
     print("\nStarting training...")
     episodes = 10 if fast_mode else Config.EPISODES
     _, episode_profits, episode_sharpes = train_agent(
-        agent, env, df_train, Config.WINDOW_SIZE, episodes, fast_mode
+        agent, env, df_train, Config.WINDOW_SIZE, episodes, fast_mode,
+        writer=writer, activations=activations
     )
     
     # Load best model for testing
@@ -1509,7 +1597,16 @@ def main(fast_mode: bool = False):
     }
     
     torch.save(results, 'training_results.pth')
-    print("\nTraining complete! Results saved.")
+    
+    # Close TensorBoard writer if available
+    if writer is not None:
+        writer.close()
+        print("\nTraining complete! Results and TensorBoard logs saved.")
+        print("\nTo view TensorBoard logs, run:")
+        print("  tensorboard --logdir=runs")
+        print("Then open http://localhost:6006/ in your browser.")
+    else:
+        print("\nTraining complete! Results saved.")
 
 if __name__ == "__main__":
     import argparse
