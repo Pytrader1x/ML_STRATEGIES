@@ -105,14 +105,12 @@ The agent uses sophisticated custom indicators:
 - **Early Stopping**: Based on Sharpe ratio improvement
 - **Model Checkpointing**: Best model saved based on Sharpe
 
-### Reward System
-- **NAV-Delta**: Pure change in Net Asset Value
-- **Scale Factor**: 200× with ATR normalization
-- **Drawdown Penalty**: -0.02 × (current_drawdown)² (quadratic penalty)
-- **Early Close Bonus**: +1.0 for successful early exits (increased to encourage active management)
-- **Holding Penalty**: -0.02 per bar for losing positions (amplified)
-- **Holding Bonus**: +0.005 per bar for winning positions (let winners run)
-- **Time-in-Market Cost**: -0.001 per bar (avoid unnecessary position holding)
+### Reward System (Simplified)
+- **Core Formula**: Reward = tanh(κ × (NAVₜ - NAVₜ₋₁))
+- **NAV-Delta**: Pure change in Net Asset Value (cash + unrealized P&L)
+- **Scaling Factor κ**: 200 ÷ (ATR × position_size) for normalization
+- **Holding Cost**: -0.001 per bar when position is open
+- **Philosophy**: Minimal reward shaping - let the agent learn from pure profit/loss signals
 
 ## Performance Metrics
 
@@ -206,12 +204,12 @@ Reinforcement_learning/
    - Total steps calculated based on episode window sizes (~120k steps over 10 episodes)
    - Faster exploration-exploitation transition for improved early learning
 
-2. **Enhanced Reward Shaping**:
-   - **Early Close Bonus**: Increased from +0.2 to +1.0 to strongly incentivize active exit management
-   - **Amplified Loser Penalty**: Increased from -0.005 to -0.02 per bar on losing positions
-   - **Winner Holding Bonus**: New +0.005 per bar reward for profitable positions
-   - **Quadratic Drawdown**: Changed from linear (-0.01 × dd) to quadratic (-0.02 × dd²)
-   - **Time Cost**: Added -0.001 per bar penalty regardless of P&L to reduce unnecessary holding
+2. **Simplified Reward System**:
+   - **Core Formula**: Reward = tanh(κ × NAV_Δ) where κ = 200/(ATR × position_size)
+   - **Removed**: All complex reward shaping terms (early close bonus, drawdown penalty, etc.)
+   - **Minimal Shaping**: Only -0.001 per bar holding cost remains
+   - **Philosophy**: Let the agent learn from pure profit/loss signals without artificial biases
+   - **Benefits**: Cleaner learning signal, easier to debug, more robust to different market conditions
 
 ## Requirements
 

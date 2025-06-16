@@ -123,8 +123,9 @@ class Config:
     BASE_TP_ATR_MULT = 3.0  # Take profit = 3 * ATR
     MIN_RR_RATIO = 1.5      # Minimum risk/reward ratio
     
-    # Reward shaping
-    # Note: Drawdown penalty is now quadratic: -0.02 * (drawdown^2)
+    # Reward system - SIMPLIFIED
+    # Core: tanh(κ * NAV_Δ) where κ = 200/(ATR*position_size)
+    # Only additional term: -0.001 per bar holding cost
     
     # C51 Distributional RL parameters
     C51_ATOMS = 51  # Number of atoms for value distribution
@@ -747,13 +748,14 @@ class TradingEnvironment:
         return stop_loss, take_profit
     
     def execute_action(self, action: int, index: int) -> Tuple[float, Dict]:
-        """Execute trading action with NAV-Δ (Mark-to-Market) reward system
+        """Execute trading action with simplified NAV-Δ reward system
         
         Reward Philosophy:
-        - Reward = scaled change in net asset value (NAV)
+        - Reward = tanh(κ * (NAVₜ - NAVₜ₋₁))
         - NAV = cash balance + unrealized P&L
-        - No junk rewards, no entry bonuses, no asymmetric scaling
-        - Pure alignment with actual trading profitability
+        - κ = scaling factor based on ATR
+        - Only additional term: tiny holding cost (-0.001 per bar)
+        - Pure, simple reward focused on profitability
         """
         self.current_step = index
         current_price = self.close_prices[index]
@@ -860,7 +862,7 @@ class TradingEnvironment:
         # Track equity curve at each step (using NAV)
         self.equity_curve.append(nav_after)
         
-        # Risk-scaled reward normalization
+        # SIMPLIFIED REWARD: Core NAV-Δ with tiny holding cost
         nav_delta = nav_after - nav_before
         
         # Get current ATR for scaling - use cached array
@@ -868,35 +870,15 @@ class TradingEnvironment:
         atr_scale = max(current_atr, 1e-5)
         
         # Scale reward by ATR and position size for normalization
-        # Option: Sharper reward scaling with larger multiplier
-        reward = 200 * nav_delta / (atr_scale * Config.POSITION_SIZE)
+        # κ = 200 / (ATR * position_size)
+        kappa = 200.0 / (atr_scale * Config.POSITION_SIZE)
         
-        # Add reward clipping/smoothing
-        reward = float(torch.tanh(torch.tensor(reward)))
+        # Core reward: tanh(κ * NAV_Δ)
+        reward = float(torch.tanh(torch.tensor(kappa * nav_delta)))
         
-        # Enhanced reward shaping
-        # 1. Boost early-close bonus significantly
-        if info.get('exit_type') == 'early_close':
-            reward += 1.0  # Increased from 0.2 to 1.0 to make Close action more attractive
-            
-        # 2. Remove over-trading penalty (double-counting with transaction cost)
-        # Removed: if info.get('exit_type'): reward -= 0.01
-            
-        # 3. Amplified holding fee on losers
-        if self.position and self.position['unrealized_pnl'] < 0:
-            reward -= 0.02  # Increased from 0.005 to discourage holding losers
-        
-        # 4. Reward positive holding on winners
-        if self.position and self.position['unrealized_pnl'] > 0:
-            reward += 0.005  # Small bonus per bar to encourage letting winners run
-        
-        # 5. Quadratic drawdown penalty curve - hits harder on large drawdowns
-        current_drawdown = self.max_drawdown
-        reward -= 0.02 * (current_drawdown ** 2)  # Changed from linear to quadratic
-        
-        # 6. Small time-in-market cost (regardless of P&L)
+        # Only additional term: tiny per-bar holding cost
         if self.position:
-            reward -= 0.001  # Tiny per-bar penalty to avoid unnecessary churn
+            reward -= 0.001  # Minimal penalty to encourage efficiency
         
         return reward, info
     
