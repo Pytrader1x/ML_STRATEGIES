@@ -67,7 +67,7 @@ class Config:
     
     # RL Parameters - IMPROVED
     WINDOW_SIZE = 50  # Larger window for better context
-    ACTION_SIZE = 3   # Clean action space: 0=Hold, 1=Buy, 2=Sell
+    ACTION_SIZE = 4   # Extended action space: 0=Hold, 1=Buy, 2=Sell, 3=Close
     NUM_ENVS = 2      # Number of parallel environments (optimized for MPS)
     
     # Model - ENHANCED
@@ -91,8 +91,8 @@ class Config:
     EPSILON = 0.9   # Start at 0.9
     EPSILON_MIN = 0.01
     EPSILON_DECAY = 0.99  # Per-episode decay (moved to end of episode)
-    MIN_HOLDING_BARS = 2  # Minimum holding period
-    COOLDOWN_BARS = 1  # Cooldown after any exit 
+    MIN_HOLDING_BARS = 0  # No minimum holding period with Close action
+    COOLDOWN_BARS = 0  # No cooldown with Close action 
     
     # Trading Parameters - USD based with 1M lots
     INITIAL_BALANCE = 1_000_000  # Start with USD 1M
@@ -293,7 +293,7 @@ class DuelingDQN_CNN(nn.Module):
         
         # Calculate flattened size after convolutions
         conv_out_size = window_size // 2  # After one MaxPool1d(2)
-        flat_size = 128 * conv_out_size + 7  # 7 position features
+        flat_size = 128 * conv_out_size + 9  # 9 position features
         
         # Value stream
         self.value = nn.Sequential(
@@ -314,8 +314,8 @@ class DuelingDQN_CNN(nn.Module):
     def forward(self, x):
         # Split window and position features
         batch_size = x.shape[0]
-        window_features = x[:, :-7].view(batch_size, self.num_features, self.window_size)
-        pos_features = x[:, -7:]
+        window_features = x[:, :-9].view(batch_size, self.num_features, self.window_size)
+        pos_features = x[:, -9:]
         
         # Apply CNN to window features
         conv_out = self.conv(window_features)
@@ -388,7 +388,7 @@ class TradingEnvironment:
         self.df = df
         self.feature_cols = feature_cols
         self.equity_curve = []  # Track equity for proper Sharpe calculation
-        self.state_size = len(feature_cols) * Config.WINDOW_SIZE + 7
+        self.state_size = len(feature_cols) * Config.WINDOW_SIZE + 9  # +9 for enhanced position info
         # Pre-convert feature data to tensor for fast access
         self.feature_tensor = torch.from_numpy(df[feature_cols].values).float().to(device)
         self.reset()
@@ -404,6 +404,7 @@ class TradingEnvironment:
         self.peak_balance = Config.INITIAL_BALANCE
         self.equity_curve = [Config.INITIAL_BALANCE]  # Initialize equity curve
         self.last_exit_bar = -Config.COOLDOWN_BARS  # Track last exit for cooldown
+        self.atr_entry = None  # Store ATR at position entry
         
     def get_state(self, index: int, window_size: int) -> torch.Tensor:
         """Get enhanced state representation - returns torch.Tensor on device"""
@@ -414,6 +415,9 @@ class TradingEnvironment:
         window = self.feature_tensor[index-window_size+1:index+1]  # [W, F] on MPS
         
         # Build position info tensor directly on device
+        current_atr = self.df['ATR'].iloc[index] if index < len(self.df) else 0.0
+        atr_ratio = (current_atr / self.atr_entry) if self.atr_entry and self.atr_entry > 0 else 1.0
+        
         pos_info = torch.tensor([
             1.0 if self.position else 0.0,
             self.position['unrealized_pnl'] / self.initial_balance if self.position else 0.0,
@@ -421,7 +425,9 @@ class TradingEnvironment:
             (self.balance / self.initial_balance - 1.0),
             self.max_drawdown,
             len(self.trade_history) / 100.0,
-            self.get_win_rate()
+            self.get_win_rate(),
+            self.atr_entry if self.atr_entry else current_atr,  # ATR at entry
+            atr_ratio  # Current ATR / Entry ATR ratio
         ], device=device, dtype=torch.float32)
         
         # Use JIT-compiled state builder
@@ -511,14 +517,15 @@ class TradingEnvironment:
             # No action taken
             pass
             
+        elif action == 3:  # Close position
+            if self.position:
+                self._close_position(current_price, 'early_close')
+                info['exit_type'] = 'early_close'
+            
         elif action == 1:  # Buy
             if not self.position:
-                # Check cooldown after exit
-                if self.current_step - self.last_exit_bar < Config.COOLDOWN_BARS:
-                    action = 0  # Convert to Hold during cooldown
-                    info['action_blocked'] = 'cooldown'
-                else:
-                    # Open long position
+                # No cooldown needed with Close action
+                # Open long position
                     stop_loss, take_profit = self.calculate_adaptive_sl_tp(
                         current_price, 1, False
                     )
@@ -535,17 +542,14 @@ class TradingEnvironment:
                         'entry_signal_strength': self.df['Composite_Signal'].iloc[index]
                     }
                     
+                    # Store ATR at entry
+                    self.atr_entry = self.df['ATR'].iloc[index]
+                    
                     info['position_opened'] = 'long'
                     
             elif self.position['direction'] == -1:
-                # P1: Minimum holding bars - prevent instant flip
-                if self.position['holding_time'] <= Config.MIN_HOLDING_BARS:
-                    # BUG FIX: Don't return early - let method continue to update metrics
-                    action = 0  # Convert to Hold action
-                    info['action_blocked'] = 'min_hold_time'
-                
-                else:
-                    # Close short and open long
+                # No minimum holding with Close action
+                # Close short and open long
                     self._close_position(current_price, 'manual')
                     
                     # Open long position
@@ -564,17 +568,16 @@ class TradingEnvironment:
                         'holding_time': 0,
                         'entry_signal_strength': self.df['Composite_Signal'].iloc[index]
                     }
+                    
+                    # Store ATR at entry
+                    self.atr_entry = self.df['ATR'].iloc[index]
                     
                     info['position_opened'] = 'long'
                     
         elif action == 2:  # Sell
             if not self.position:
-                # Check cooldown after exit
-                if self.current_step - self.last_exit_bar < Config.COOLDOWN_BARS:
-                    action = 0  # Convert to Hold during cooldown
-                    info['action_blocked'] = 'cooldown'
-                else:
-                    # Open short position
+                # No cooldown needed with Close action
+                # Open short position
                     stop_loss, take_profit = self.calculate_adaptive_sl_tp(
                         current_price, -1, False
                     )
@@ -591,17 +594,14 @@ class TradingEnvironment:
                         'entry_signal_strength': self.df['Composite_Signal'].iloc[index]
                     }
                     
+                    # Store ATR at entry
+                    self.atr_entry = self.df['ATR'].iloc[index]
+                    
                     info['position_opened'] = 'short'
                     
             elif self.position['direction'] == 1:
-                # P1: Minimum holding bars - prevent instant flip
-                if self.position['holding_time'] <= Config.MIN_HOLDING_BARS:
-                    # BUG FIX: Don't return early - let method continue to update metrics
-                    action = 0  # Convert to Hold action
-                    info['action_blocked'] = 'min_hold_time'
-                
-                else:
-                    # Close long position (manual exit)
+                # No minimum holding with Close action
+                # Close long position (manual exit)
                     self._close_position(current_price, 'manual')
                     
                     # Open short position
@@ -620,6 +620,9 @@ class TradingEnvironment:
                         'holding_time': 0,
                         'entry_signal_strength': self.df['Composite_Signal'].iloc[index]
                     }
+                    
+                    # Store ATR at entry
+                    self.atr_entry = self.df['ATR'].iloc[index]
                     
                     info['position_opened'] = 'short'
         
@@ -635,13 +638,19 @@ class TradingEnvironment:
         # Track equity curve at each step (using NAV)
         self.equity_curve.append(nav_after)
         
-        # P0-2: Pure NAV-Δ reward only
-        # Calculate NAV-Δ reward: r_t = (B_t + U_t) - (B_{t-1} + U_{t-1})
+        # Risk-scaled reward normalization
         nav_delta = nav_after - nav_before
         
-        # Scale by 1000 to get typical rewards in [-1, 1] range
-        # This symmetric scaling ensures no bias toward long or short
-        reward = (nav_delta / self.initial_balance) * 1000 - 0.0001
+        # Get current ATR for scaling
+        current_atr = self.df['ATR'].iloc[index] if index < len(self.df) else 0.0
+        atr_scale = max(current_atr, 1e-5)
+        
+        # Scale reward by ATR and position size for normalization
+        reward = 100 * nav_delta / (atr_scale * Config.POSITION_SIZE)
+        
+        # Optional exit-shaping bonus for early close
+        if info.get('exit_type') == 'early_close':
+            reward += 0.05
         
         return reward, info
     
@@ -710,6 +719,7 @@ class TradingEnvironment:
         })
         
         self.position = None
+        self.atr_entry = None  # Clear ATR at entry
         self.last_exit_bar = self.current_step  # Record exit time for cooldown
     
     def _update_metrics(self):
@@ -827,21 +837,28 @@ class TradingAgent:
         experience = Experience(state, action, reward, next_state, done)
         self.memory.push(experience)
     
-    def act(self, state: torch.Tensor, signal: float = 0.0) -> int:
+    def act(self, state: torch.Tensor, signal: float = 0.0, has_position: bool = False) -> int:
         """Choose action using epsilon-greedy policy with signal-based masking
         
-        P0-3: Action masking based on Composite_Signal
-        - If signal > 0.2: disable Sell (action 2)
-        - If signal < -0.2: disable Buy (action 1)
+        Action masking based on Composite_Signal and position state:
+        - If signal > 0.35: disable Sell (action 2)
+        - If signal < -0.35: disable Buy (action 1)
+        - If no position: disable Close (action 3)
         """
         # Epsilon-greedy with masked actions
         if random.random() <= self.epsilon:
-            # Create action mask based on signal (tightened thresholds)
-            valid_actions = [0, 1, 2]  # Hold, Buy, Sell
+            # Create action mask based on signal and position
+            valid_actions = [0, 1, 2, 3]  # Hold, Buy, Sell, Close
+            
+            if not has_position:
+                valid_actions.remove(3)  # Remove Close when no position
+            
             if signal > 0.35:  # Stronger bullish signal required
-                valid_actions.remove(2)  # Remove Sell when strongly bullish
+                if 2 in valid_actions:
+                    valid_actions.remove(2)  # Remove Sell when strongly bullish
             elif signal < -0.35:  # Stronger bearish signal required
-                valid_actions.remove(1)  # Remove Buy when strongly bearish
+                if 1 in valid_actions:
+                    valid_actions.remove(1)  # Remove Buy when strongly bearish
             return random.choice(valid_actions)
         
         # Get Q-values - state is already a tensor on device!
@@ -858,7 +875,10 @@ class TradingAgent:
         exploration_bonus = np.random.normal(0, 0.01, self.action_size)
         q_values_np += exploration_bonus
         
-        # P0-3: Apply action masking (tightened thresholds)
+        # Apply action masking based on signal and position
+        if not has_position:
+            q_values_np[3] = -1e9  # Mask Close when no position
+            
         if signal > 0.35:  # Stronger bullish signal required
             q_values_np[2] = -1e9  # Mask Sell when strongly bullish
         elif signal < -0.35:  # Stronger bearish signal required
@@ -902,6 +922,11 @@ class TradingAgent:
         self.optimizer.zero_grad()
         loss.backward()
         torch.nn.utils.clip_grad_norm_(self.q_network.parameters(), 1.0)
+        
+        # MPS synchronization for Apple devices
+        if device.type == 'mps':
+            torch.mps.synchronize()
+            
         self.optimizer.step()
         
         # Update target network
@@ -940,18 +965,25 @@ def train_agent(agent: TradingAgent, env: TradingEnvironment, df_train: pd.DataF
         # Reset environment
         env.reset()
         
-        # Sample random window
-        window_length = min(
-            int(Config.MIN_WINDOW_SIZE * (1.2 ** (episode / 10))),
-            Config.MAX_WINDOW_SIZE,
-            len(df_train) - window_size - 1
-        )
-        
-        if fast_mode:
-            window_length = min(window_length, 5000)
-        
-        start_idx = random.randint(window_size, len(df_train) - window_length - 1)
-        end_idx = start_idx + window_length
+        # Sequential first-epoch training for coherent experience
+        if episode == 0:
+            # First episode: use full chronological data
+            start_idx = window_size
+            end_idx = min(len(df_train) - 1, start_idx + 50000)  # Cap at 50k bars
+            window_length = end_idx - start_idx
+        else:
+            # Subsequent episodes: sample random windows
+            window_length = min(
+                int(Config.MIN_WINDOW_SIZE * (1.2 ** (episode / 10))),
+                Config.MAX_WINDOW_SIZE,
+                len(df_train) - window_size - 1
+            )
+            
+            if fast_mode:
+                window_length = min(window_length, 5000)
+            
+            start_idx = random.randint(window_size, len(df_train) - window_length - 1)
+            end_idx = start_idx + window_length
         
         # Get initial state - now returns torch.Tensor
         state = env.get_state(start_idx, window_size)
@@ -969,7 +1001,7 @@ def train_agent(agent: TradingAgent, env: TradingEnvironment, df_train: pd.DataF
             composite_signal = df_train['Composite_Signal'].iloc[t]
             
             # Agent takes action with signal-based masking
-            action = agent.act(state, composite_signal)
+            action = agent.act(state, composite_signal, has_position=bool(env.position))
             
             # Execute action
             reward, info = env.execute_action(action, t)
@@ -1082,12 +1114,14 @@ def train_agent(agent: TradingAgent, env: TradingEnvironment, df_train: pd.DataF
         else:
             no_improvement_count += 1
         
-        # Epsilon decay at end of episode
-        agent.epsilon = max(Config.EPSILON_MIN, agent.epsilon * Config.EPSILON_DECAY)
+        # Cap exploration and anneal parameters
+        # Epsilon decay: more aggressive after each episode
+        agent.epsilon = max(0.05, agent.epsilon * 0.99)
         print(f"  Current Epsilon: {agent.epsilon:.4f}")
         
-        # Anneal beta over episodes
-        agent.beta = min(1.0, 0.4 + (0.6 * episode / episodes))  # Linear from 0.4 to 1.0
+        # Anneal PER beta: linear from 0.4 to 1.0 based on total steps
+        total_steps = (episode + 1) * window_length
+        agent.beta = min(1.0, 0.4 + 0.8 * total_steps / 80000)
         
         # Create interactive Plotly chart for episode
         if len(trades) > 0 and episode % 1 == 0:  # Save every 1th episode to avoid too many files
@@ -1304,8 +1338,15 @@ def main(fast_mode: bool = False):
     df_train = df[:train_size].copy()
     df_test = df[train_size:].copy()
     
+    # Store splits back in loader.df before normalization
+    loader.df = pd.concat([df_train, df_test])
+    
     # Compute normalization stats from training data only
     feature_cols = loader.prepare_features(train_df=df_train)
+    
+    # Now extract the normalized data
+    df_train = loader.df[:train_size].copy()
+    df_test = loader.df[train_size:].copy()
     
     print(f"\nUsing {len(feature_cols)} features")
     
@@ -1314,7 +1355,7 @@ def main(fast_mode: bool = False):
     
     # Initialize environment and agent
     env = TradingEnvironment(df_train, feature_cols)
-    state_size = len(feature_cols) * Config.WINDOW_SIZE + 7  # +7 for position info
+    state_size = len(feature_cols) * Config.WINDOW_SIZE + 9  # +9 for enhanced position info
     agent = TradingAgent(state_size, Config.ACTION_SIZE)
     
     print(f"\nState size: {state_size}")
@@ -1344,11 +1385,11 @@ def main(fast_mode: bool = False):
     test_trades = []
     
     for t in tqdm(range(Config.WINDOW_SIZE, len(df_test) - 1)):
-        # P0-3: Get composite signal for action masking
+        # Get composite signal for action masking
         composite_signal = df_test['Composite_Signal'].iloc[t]
         
         # Agent takes action with signal-based masking
-        action = agent.act(state, composite_signal)
+        action = agent.act(state, composite_signal, has_position=bool(env_test.position))
         _, info = env_test.execute_action(action, t)
         
         next_state = env_test.get_state(t + 1, Config.WINDOW_SIZE)
