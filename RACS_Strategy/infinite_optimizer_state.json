@@ -1,0 +1,13 @@
+{
+  "iteration": 230,
+  "best_result": null,
+  "current_params": {
+    "risk_pct": 0.013000000000000001,
+    "confidence_threshold": 70,
+    "slope_threshold": 15,
+    "stop_loss_atr": 0.5,
+    "take_profit_atr": 2.5,
+    "max_positions": 1
+  },
+  "elapsed_minutes": 4.910444645086924
+}

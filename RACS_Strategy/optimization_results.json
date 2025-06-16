@@ -1,0 +1,12 @@
+{
+  "best_sharpe": 0.18991710899326722,
+  "best_params": {
+    "fast": 13,
+    "slow": 30,
+    "risk": 0.005,
+    "stop": 0.01
+  },
+  "total_iterations": 1896,
+  "success": false,
+  "timestamp": "2025-06-17T00:29:22.918826"
+}
