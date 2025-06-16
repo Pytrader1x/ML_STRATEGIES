@@ -24,6 +24,7 @@ import time
 try:
     from torch.utils.tensorboard import SummaryWriter
     TENSORBOARD_AVAILABLE = True
+    print("TensorBoard available - logging enabled")
 except ImportError:
     TENSORBOARD_AVAILABLE = False
     print("TensorBoard not available. Install with: pip install tensorboard")
@@ -101,6 +102,16 @@ class Config:
     MIN_HOLDING_BARS = 0  # No minimum holding period with Close action
     COOLDOWN_BARS = 0  # No cooldown with Close action 
     
+    # N-step returns
+    N_STEPS = 4  # Number of steps for n-step returns
+    
+    # PER hyperparameters - IMPROVED
+    PER_ALPHA = 0.75  # Increased from 0.6 for stronger prioritization
+    PER_BETA_START = 0.4
+    PER_BETA_END = 1.0
+    PER_BETA_STEPS = 20000  # Faster beta schedule
+    PER_WARMUP_STEPS = 5000  # Delay PER activation
+    
     # Trading Parameters - USD based with 1M lots
     INITIAL_BALANCE = 1_000_000  # Start with USD 1M
     POSITION_SIZE = 1_000_000    # Always trade 1M AUDUSD units
@@ -110,6 +121,28 @@ class Config:
     BASE_SL_ATR_MULT = 2.0  # Stop loss = 2 * ATR
     BASE_TP_ATR_MULT = 3.0  # Take profit = 3 * ATR
     MIN_RR_RATIO = 1.5      # Minimum risk/reward ratio
+    
+    # Reward shaping
+    DRAWDOWN_PENALTY_COEF = 0.01  # Penalty coefficient for drawdown
+    
+    # C51 Distributional RL parameters
+    C51_ATOMS = 51  # Number of atoms for value distribution
+    C51_VMIN = -10.0  # Minimum value support
+    C51_VMAX = 10.0  # Maximum value support
+    USE_C51 = True  # Enable C51 distributional RL
+    
+    # NoisyNet parameters
+    USE_NOISY_NET = True  # Enable NoisyNet for exploration
+    NOISY_STD = 0.5  # Initial noise standard deviation
+    
+    # LSTM parameters for temporal features
+    USE_LSTM = True  # Enable LSTM after CNN
+    LSTM_HIDDEN_SIZE = 64  # LSTM hidden state size
+    LSTM_NUM_LAYERS = 2  # Number of LSTM layers
+    
+    # Performance optimization
+    USE_TORCH_COMPILE = True  # Enable torch.compile for faster execution
+    USE_AMP = True  # Enable Automatic Mixed Precision (AMP)
 
 # %% Enhanced Data Loader
 class DataLoader:
@@ -269,18 +302,178 @@ class DataLoader:
                     self.norm_stats[col]['std']
                 )
             elif col in self.df.columns:
-                # Fallback for backward compatibility
+                # Fallback - compute from training set if norm_stats not available
+                if train_df is not None:
+                    mean_val = train_df[col].mean()
+                    std_val = train_df[col].std() + 1e-8
+                else:
+                    # Last resort - use full dataset stats
+                    mean_val = self.df[col].mean()
+                    std_val = self.df[col].std() + 1e-8
+                
                 self.df[f'{col}_norm'] = (
-                    (self.df[col] - self.df[col].rolling(200).mean()) / 
-                    (self.df[col].rolling(200).std() + 1e-8)
+                    (self.df[col] - mean_val) / std_val
                 ).fillna(0)
         
         return [f'{col}_norm' for col in self.feature_cols if col in self.df.columns]
     
 
 # %% Enhanced DQN Model
+# NoisyLinear layer for exploration
+class NoisyLinear(nn.Module):
+    """Noisy linear layer for exploration (Fortunato et al. 2017)"""
+    def __init__(self, in_features: int, out_features: int, std_init: float = 0.5):
+        super(NoisyLinear, self).__init__()
+        self.in_features = in_features
+        self.out_features = out_features
+        self.std_init = std_init
+        
+        # Learnable parameters
+        self.weight_mu = nn.Parameter(torch.FloatTensor(out_features, in_features))
+        self.weight_sigma = nn.Parameter(torch.FloatTensor(out_features, in_features))
+        self.bias_mu = nn.Parameter(torch.FloatTensor(out_features))
+        self.bias_sigma = nn.Parameter(torch.FloatTensor(out_features))
+        
+        # Factorized noise
+        self.register_buffer('weight_epsilon', torch.FloatTensor(out_features, in_features))
+        self.register_buffer('bias_epsilon', torch.FloatTensor(out_features))
+        
+        self.reset_parameters()
+        self.reset_noise()
+    
+    def reset_parameters(self):
+        """Initialize parameters"""
+        mu_range = 1 / np.sqrt(self.in_features)
+        self.weight_mu.data.uniform_(-mu_range, mu_range)
+        self.weight_sigma.data.fill_(self.std_init / np.sqrt(self.in_features))
+        self.bias_mu.data.uniform_(-mu_range, mu_range)
+        self.bias_sigma.data.fill_(self.std_init / np.sqrt(self.out_features))
+    
+    def reset_noise(self):
+        """Sample new noise"""
+        epsilon_in = self._scale_noise(self.in_features)
+        epsilon_out = self._scale_noise(self.out_features)
+        self.weight_epsilon.copy_(epsilon_out.ger(epsilon_in))
+        self.bias_epsilon.copy_(epsilon_out)
+    
+    def _scale_noise(self, size: int) -> torch.Tensor:
+        """Factorized Gaussian noise"""
+        x = torch.randn(size, device=self.weight_mu.device)
+        return x.sign() * x.abs().sqrt()
+    
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        if self.training:
+            weight = self.weight_mu + self.weight_sigma * self.weight_epsilon
+            bias = self.bias_mu + self.bias_sigma * self.bias_epsilon
+        else:
+            weight = self.weight_mu
+            bias = self.bias_mu
+        return F.linear(x, weight, bias)
+
+
+class DuelingC51DQN_CNN(nn.Module):
+    """Dueling C51 DQN with 1D CNN for distributional RL"""
+    
+    def __init__(self, state_size: int, action_size: int, num_features: int = 18, window_size: int = 50,
+                 n_atoms: int = Config.C51_ATOMS, v_min: float = Config.C51_VMIN, v_max: float = Config.C51_VMAX):
+        super(DuelingC51DQN_CNN, self).__init__()
+        self.num_features = num_features
+        self.window_size = window_size
+        self.action_size = action_size
+        self.n_atoms = n_atoms
+        self.v_min = v_min
+        self.v_max = v_max
+        self.delta_z = (v_max - v_min) / (n_atoms - 1)
+        
+        # Support for categorical distribution
+        self.register_buffer('support', torch.linspace(v_min, v_max, n_atoms))
+        
+        # 1D CNN for temporal feature extraction
+        self.conv = nn.Sequential(
+            nn.Conv1d(num_features, 64, kernel_size=5, padding=2),
+            nn.ReLU(),
+            nn.MaxPool1d(2),
+            nn.Conv1d(64, 128, kernel_size=3, padding=1),
+            nn.ReLU(),
+            nn.BatchNorm1d(128),
+            nn.Dropout(0.2)
+        )
+        
+        # LSTM for temporal features if enabled
+        if Config.USE_LSTM:
+            self.lstm = nn.LSTM(
+                input_size=128,
+                hidden_size=Config.LSTM_HIDDEN_SIZE,
+                num_layers=Config.LSTM_NUM_LAYERS,
+                batch_first=True,
+                dropout=0.1 if Config.LSTM_NUM_LAYERS > 1 else 0
+            )
+            # Calculate flattened size after convolutions and LSTM
+            conv_out_size = window_size // 2  # After one MaxPool1d(2)
+            flat_size = Config.LSTM_HIDDEN_SIZE * conv_out_size + 9  # 9 position features
+        else:
+            self.lstm = None
+            # Calculate flattened size after convolutions
+            conv_out_size = window_size // 2  # After one MaxPool1d(2)
+            flat_size = 128 * conv_out_size + 9  # 9 position features
+        
+        # Value stream - outputs distribution over atoms
+        self.value = nn.Sequential(
+            nn.Linear(flat_size, 128),
+            nn.ReLU(),
+            nn.Dropout(0.2),
+            nn.Linear(128, n_atoms)
+        )
+        
+        # Advantage stream - outputs distribution over atoms for each action
+        self.advantage = nn.Sequential(
+            nn.Linear(flat_size, 128),
+            nn.ReLU(),
+            nn.Dropout(0.2),
+            nn.Linear(128, action_size * n_atoms)
+        )
+        
+    def forward(self, x, return_dist=False):
+        # Split window and position features
+        batch_size = x.shape[0]
+        window_features = x[:, :-9].view(batch_size, self.num_features, self.window_size)
+        pos_features = x[:, -9:]
+        
+        # Apply CNN to window features
+        conv_out = self.conv(window_features)
+        
+        # Apply LSTM if enabled
+        if self.lstm is not None:
+            # Reshape for LSTM: (batch, channels, seq_len) -> (batch, seq_len, channels)
+            conv_out = conv_out.permute(0, 2, 1)
+            lstm_out, _ = self.lstm(conv_out)
+            # Use the LSTM output: (batch, seq_len, hidden_size)
+            lstm_flat = lstm_out.flatten(1)
+            combined = torch.cat([lstm_flat, pos_features], dim=1)
+        else:
+            conv_flat = conv_out.flatten(1)
+            combined = torch.cat([conv_flat, pos_features], dim=1)
+        
+        # Compute value and advantage distributions
+        value_dist = self.value(combined).view(batch_size, 1, self.n_atoms)
+        advantage_dist = self.advantage(combined).view(batch_size, self.action_size, self.n_atoms)
+        
+        # Combine streams using dueling architecture
+        q_dist = value_dist + (advantage_dist - advantage_dist.mean(dim=1, keepdim=True))
+        
+        # Apply softmax to get probabilities
+        q_probs = F.softmax(q_dist, dim=-1)
+        
+        if return_dist:
+            return q_probs
+        
+        # Return expected Q-values for action selection
+        q_values = (q_probs * self.support.view(1, 1, -1)).sum(dim=-1)
+        return q_values
+
+
 class DuelingDQN_CNN(nn.Module):
-    """Dueling DQN with 1D CNN for feature extraction"""
+    """Original Dueling DQN with 1D CNN for feature extraction (non-distributional)"""
     
     def __init__(self, state_size: int, action_size: int, num_features: int = 18, window_size: int = 50):
         super(DuelingDQN_CNN, self).__init__()
@@ -298,26 +491,56 @@ class DuelingDQN_CNN(nn.Module):
             nn.Dropout(0.2)
         )
         
-        # Calculate flattened size after convolutions
-        conv_out_size = window_size // 2  # After one MaxPool1d(2)
-        flat_size = 128 * conv_out_size + 9  # 9 position features
+        # LSTM for temporal features if enabled
+        if Config.USE_LSTM:
+            self.lstm = nn.LSTM(
+                input_size=128,
+                hidden_size=Config.LSTM_HIDDEN_SIZE,
+                num_layers=Config.LSTM_NUM_LAYERS,
+                batch_first=True,
+                dropout=0.1 if Config.LSTM_NUM_LAYERS > 1 else 0
+            )
+            # Calculate flattened size after convolutions and LSTM
+            conv_out_size = window_size // 2  # After one MaxPool1d(2)
+            flat_size = Config.LSTM_HIDDEN_SIZE * conv_out_size + 9  # 9 position features
+        else:
+            self.lstm = None
+            # Calculate flattened size after convolutions
+            conv_out_size = window_size // 2  # After one MaxPool1d(2)
+            flat_size = 128 * conv_out_size + 9  # 9 position features
         
         # Value stream
-        self.value = nn.Sequential(
-            nn.Linear(flat_size, 128),
-            nn.ReLU(),
-            nn.Dropout(0.2),
-            nn.Linear(128, 1)
-        )
-        
-        # Advantage stream
-        self.advantage = nn.Sequential(
-            nn.Linear(flat_size, 128),
-            nn.ReLU(),
-            nn.Dropout(0.2),
-            nn.Linear(128, action_size)
-        )
-        
+        if Config.USE_NOISY_NET:
+            self.value = nn.Sequential(
+                NoisyLinear(flat_size, 128, Config.NOISY_STD),
+                nn.ReLU(),
+                nn.Dropout(0.2),
+                NoisyLinear(128, 1, Config.NOISY_STD)
+            )
+            
+            # Advantage stream
+            self.advantage = nn.Sequential(
+                NoisyLinear(flat_size, 128, Config.NOISY_STD),
+                nn.ReLU(),
+                nn.Dropout(0.2),
+                NoisyLinear(128, action_size, Config.NOISY_STD)
+            )
+        else:
+            self.value = nn.Sequential(
+                nn.Linear(flat_size, 128),
+                nn.ReLU(),
+                nn.Dropout(0.2),
+                nn.Linear(128, 1)
+            )
+            
+            # Advantage stream
+            self.advantage = nn.Sequential(
+                nn.Linear(flat_size, 128),
+                nn.ReLU(),
+                nn.Dropout(0.2),
+                nn.Linear(128, action_size)
+            )
+    
     def forward(self, x):
         # Split window and position features
         batch_size = x.shape[0]
@@ -326,10 +549,18 @@ class DuelingDQN_CNN(nn.Module):
         
         # Apply CNN to window features
         conv_out = self.conv(window_features)
-        conv_flat = conv_out.flatten(1)
         
-        # Concatenate with position features
-        combined = torch.cat([conv_flat, pos_features], dim=1)
+        # Apply LSTM if enabled
+        if self.lstm is not None:
+            # Reshape for LSTM: (batch, channels, seq_len) -> (batch, seq_len, channels)
+            conv_out = conv_out.permute(0, 2, 1)
+            lstm_out, _ = self.lstm(conv_out)
+            # Use the LSTM output: (batch, seq_len, hidden_size)
+            lstm_flat = lstm_out.flatten(1)
+            combined = torch.cat([lstm_flat, pos_features], dim=1)
+        else:
+            conv_flat = conv_out.flatten(1)
+            combined = torch.cat([conv_flat, pos_features], dim=1)
         
         # Compute value and advantage
         value = self.value(combined)
@@ -339,6 +570,13 @@ class DuelingDQN_CNN(nn.Module):
         q_values = value + (advantage - advantage.mean(dim=1, keepdim=True))
         
         return q_values
+    
+    def reset_noise(self):
+        """Reset noise in all NoisyLinear layers"""
+        if Config.USE_NOISY_NET:
+            for module in self.modules():
+                if isinstance(module, NoisyLinear):
+                    module.reset_noise()
 
 
 class DuelingDQN(nn.Module):
@@ -357,12 +595,20 @@ class DuelingDQN(nn.Module):
         self.dropout2 = nn.Dropout(0.2)
         
         # Value stream
-        self.value_fc = nn.Linear(Config.HIDDEN_LAYER_2, Config.HIDDEN_LAYER_3)
-        self.value_out = nn.Linear(Config.HIDDEN_LAYER_3, 1)
-        
-        # Advantage stream
-        self.advantage_fc = nn.Linear(Config.HIDDEN_LAYER_2, Config.HIDDEN_LAYER_3)
-        self.advantage_out = nn.Linear(Config.HIDDEN_LAYER_3, action_size)
+        if Config.USE_NOISY_NET:
+            self.value_fc = NoisyLinear(Config.HIDDEN_LAYER_2, Config.HIDDEN_LAYER_3, Config.NOISY_STD)
+            self.value_out = NoisyLinear(Config.HIDDEN_LAYER_3, 1, Config.NOISY_STD)
+            
+            # Advantage stream
+            self.advantage_fc = NoisyLinear(Config.HIDDEN_LAYER_2, Config.HIDDEN_LAYER_3, Config.NOISY_STD)
+            self.advantage_out = NoisyLinear(Config.HIDDEN_LAYER_3, action_size, Config.NOISY_STD)
+        else:
+            self.value_fc = nn.Linear(Config.HIDDEN_LAYER_2, Config.HIDDEN_LAYER_3)
+            self.value_out = nn.Linear(Config.HIDDEN_LAYER_3, 1)
+            
+            # Advantage stream
+            self.advantage_fc = nn.Linear(Config.HIDDEN_LAYER_2, Config.HIDDEN_LAYER_3)
+            self.advantage_out = nn.Linear(Config.HIDDEN_LAYER_3, action_size)
         
         # Noisy linear layers for exploration
         self.noisy_std = 0.1
@@ -386,6 +632,13 @@ class DuelingDQN(nn.Module):
         q_values = value + (advantage - advantage.mean(dim=1, keepdim=True))
         
         return q_values
+    
+    def reset_noise(self):
+        """Reset noise in all NoisyLinear layers"""
+        if Config.USE_NOISY_NET:
+            for module in self.modules():
+                if isinstance(module, NoisyLinear):
+                    module.reset_noise()
 
 # %% Enhanced Trading Environment
 class TradingEnvironment:
@@ -523,15 +776,19 @@ class TradingEnvironment:
             if self.position['direction'] == 1:  # Long
                 if current_price <= self.position['stop_loss']:
                     self._close_position(current_price, 'stop_loss')
+                    info['exit_type'] = 'stop_loss'
                 elif current_price >= self.position['take_profit']:
                     self._close_position(current_price, 'take_profit')
+                    info['exit_type'] = 'take_profit'
             else:  # Short
                 if current_price >= self.position['stop_loss']:
                     self._close_position(current_price, 'stop_loss')
+                    info['exit_type'] = 'stop_loss'
                 elif current_price <= self.position['take_profit']:
                     self._close_position(current_price, 'take_profit')
+                    info['exit_type'] = 'take_profit'
         
-        # Execute new actions
+        # Execute new actions with strict one-trade-at-a-time enforcement
         if action == 0:  # Hold
             # No action taken
             pass
@@ -540,11 +797,10 @@ class TradingEnvironment:
             if self.position:
                 self._close_position(current_price, 'early_close')
                 info['exit_type'] = 'early_close'
+            # Ignore close action if no position
             
-        elif action == 1:  # Buy
-            if not self.position:
-                # No cooldown needed with Close action
-                # Open long position
+        elif action == 1 and not self.position:  # Buy - only if no position
+            # Open long position
                     stop_loss, take_profit = self.calculate_adaptive_sl_tp(
                         current_price, 1, False
                     )
@@ -565,38 +821,10 @@ class TradingEnvironment:
                     self.atr_entry = self.atr_values[index]
                     
                     info['position_opened'] = 'long'
+            # Ignore buy action if already have position (enforcing one-trade-at-a-time)
                     
-            elif self.position['direction'] == -1:
-                # No minimum holding with Close action
-                # Close short and open long
-                    self._close_position(current_price, 'manual')
-                    
-                    # Open long position
-                    stop_loss, take_profit = self.calculate_adaptive_sl_tp(
-                        current_price, 1, False
-                    )
-                    
-                    self.position = {
-                        'entry_price': current_price,
-                        'size': Config.POSITION_SIZE,
-                        'direction': 1,
-                        'stop_loss': stop_loss,
-                        'take_profit': take_profit,
-                        'entry_index': index,
-                        'unrealized_pnl': 0,
-                        'holding_time': 0,
-                        'entry_signal_strength': self.composite_signals[index]
-                    }
-                    
-                    # Store ATR at entry
-                    self.atr_entry = self.atr_values[index]
-                    
-                    info['position_opened'] = 'long'
-                    
-        elif action == 2:  # Sell
-            if not self.position:
-                # No cooldown needed with Close action
-                # Open short position
+        elif action == 2 and not self.position:  # Sell - only if no position
+            # Open short position
                     stop_loss, take_profit = self.calculate_adaptive_sl_tp(
                         current_price, -1, False
                     )
@@ -617,33 +845,7 @@ class TradingEnvironment:
                     self.atr_entry = self.atr_values[index]
                     
                     info['position_opened'] = 'short'
-                    
-            elif self.position['direction'] == 1:
-                # No minimum holding with Close action
-                # Close long position (manual exit)
-                    self._close_position(current_price, 'manual')
-                    
-                    # Open short position
-                    stop_loss, take_profit = self.calculate_adaptive_sl_tp(
-                        current_price, -1, False
-                    )
-                    
-                    self.position = {
-                        'entry_price': current_price,
-                        'size': Config.POSITION_SIZE,
-                        'direction': -1,
-                        'stop_loss': stop_loss,
-                        'take_profit': take_profit,
-                        'entry_index': index,
-                        'unrealized_pnl': 0,
-                        'holding_time': 0,
-                        'entry_signal_strength': self.composite_signals[index]
-                    }
-                    
-                    # Store ATR at entry
-                    self.atr_entry = self.atr_values[index]
-                    
-                    info['position_opened'] = 'short'
+            # Ignore sell action if already have position (enforcing one-trade-at-a-time)
         
         # Update metrics
         self._update_metrics()
@@ -668,18 +870,24 @@ class TradingEnvironment:
         # Option: Sharper reward scaling with larger multiplier
         reward = 200 * nav_delta / (atr_scale * Config.POSITION_SIZE)
         
+        # Add reward clipping/smoothing
+        reward = float(torch.tanh(torch.tensor(reward)))
+        
         # Enhanced reward shaping
         # 1. Boost early-close bonus
         if info.get('exit_type') == 'early_close':
             reward += 0.2  # Increased from 0.05
             
-        # 2. Penalize over-trading
-        if info.get('exit_type'):
-            reward -= 0.01  # Small trade cost
+        # 2. Remove over-trading penalty (double-counting with transaction cost)
+        # Removed: if info.get('exit_type'): reward -= 0.01
             
         # 3. Holding fee on losers
         if self.position and self.position['unrealized_pnl'] < 0:
             reward -= 0.005
+        
+        # 4. Drawdown penalty - penalize being below peak
+        current_drawdown = self.max_drawdown
+        reward -= Config.DRAWDOWN_PENALTY_COEF * current_drawdown
         
         return reward, info
     
@@ -701,7 +909,7 @@ class TradingEnvironment:
             return (composite_signal < -0.3 and nti_confidence > 0.6) or \
                    (composite_signal < -0.5 and trending == 1)
     
-    def _calculate_position_size(self, conservative: bool = False) -> float:
+    def _calculate_position_size(self) -> float:
         """Return fixed position size - always 1M units"""
         return Config.POSITION_SIZE
     
@@ -743,6 +951,7 @@ class TradingEnvironment:
             'tp_exit': exit_type == 'take_profit',
             'sl_exit': exit_type == 'stop_loss',
             'manual_exit': exit_type == 'manual',
+            'early_exit': exit_type == 'early_close',  # Track early close exits
             'drawdown': self.max_drawdown,
             'entry_index': self.position['entry_index']
         })
@@ -764,52 +973,132 @@ class TradingEnvironment:
 Experience = namedtuple('Experience', 
     ['state', 'action', 'reward', 'next_state', 'done'])
 
-class PrioritizedReplayBuffer:
-    """Prioritized experience replay buffer"""
+NStepExperience = namedtuple('NStepExperience',
+    ['state', 'action', 'n_reward', 'n_state', 'done', 'actual_n'])
+
+class SumTree:
+    """Binary sum tree for O(log n) prioritized sampling"""
     
-    def __init__(self, capacity: int, alpha: float = 0.6):
+    def __init__(self, capacity: int):
+        self.capacity = capacity
+        self.tree = np.zeros(2 * capacity - 1)
+        self.data = np.zeros(capacity, dtype=object)
+        self.write = 0
+        self.n_entries = 0
+        
+    def _propagate(self, idx: int, change: float):
+        """Propagate priority change up the tree"""
+        parent = (idx - 1) // 2
+        self.tree[parent] += change
+        if parent != 0:
+            self._propagate(parent, change)
+    
+    def _retrieve(self, idx: int, s: float) -> int:
+        """Find sample on leaf node"""
+        left = 2 * idx + 1
+        right = left + 1
+        
+        if left >= len(self.tree):
+            return idx
+        
+        if s <= self.tree[left]:
+            return self._retrieve(left, s)
+        else:
+            return self._retrieve(right, s - self.tree[left])
+    
+    def total(self) -> float:
+        """Get total priority"""
+        return self.tree[0]
+    
+    def add(self, priority: float, data: Experience):
+        """Add new experience with priority"""
+        idx = self.write + self.capacity - 1
+        
+        self.data[self.write] = data
+        self.update(idx, priority)
+        
+        self.write += 1
+        if self.write >= self.capacity:
+            self.write = 0
+        
+        if self.n_entries < self.capacity:
+            self.n_entries += 1
+    
+    def update(self, idx: int, priority: float):
+        """Update priority of existing node"""
+        change = priority - self.tree[idx]
+        self.tree[idx] = priority
+        self._propagate(idx, change)
+    
+    def get(self, s: float) -> Tuple[int, float, Experience]:
+        """Get experience by priority sum"""
+        idx = self._retrieve(0, s)
+        dataIdx = idx - self.capacity + 1
+        
+        return idx, self.tree[idx], self.data[dataIdx]
+
+
+class PrioritizedReplayBuffer:
+    """Prioritized experience replay buffer with O(log n) operations"""
+    
+    def __init__(self, capacity: int, alpha: float = Config.PER_ALPHA):
+        self.tree = SumTree(capacity)
         self.capacity = capacity
         self.alpha = alpha
-        self.buffer = []
-        self.priorities = np.zeros(capacity, dtype=np.float32)
-        self.position = 0
+        self.max_priority = 1.0
+        self.beta = Config.PER_BETA_START
+        self.beta_increment_per_sampling = 0.001
+        self.total_steps = 0  # Track total steps for warmup
         
     def push(self, experience: Experience):
         """Add experience with maximum priority"""
-        max_priority = self.priorities.max() if self.buffer else 1.0
-        
-        if len(self.buffer) < self.capacity:
-            self.buffer.append(experience)
+        self.total_steps += 1
+        # Use lower priority during warmup period
+        if self.total_steps < Config.PER_WARMUP_STEPS:
+            priority = 1.0  # Uniform priority during warmup
         else:
-            self.buffer[self.position] = experience
-        
-        self.priorities[self.position] = max_priority
-        self.position = (self.position + 1) % self.capacity
+            priority = self.max_priority ** self.alpha
+        self.tree.add(priority, experience)
         
     def sample(self, batch_size: int, beta: float = 0.4) -> Tuple:
-        """Sample batch with priority-based probabilities"""
-        if len(self.buffer) == self.capacity:
-            priorities = self.priorities
-        else:
-            priorities = self.priorities[:self.position]
+        """Sample batch with priority-based probabilities - O(log n)"""
+        experiences = []
+        indices = []
+        priorities = []
+        segment = self.tree.total() / batch_size
         
-        probabilities = priorities ** self.alpha
-        probabilities /= probabilities.sum()
+        for i in range(batch_size):
+            a = segment * i
+            b = segment * (i + 1)
+            s = random.uniform(a, b)
+            idx, priority, experience = self.tree.get(s)
+            
+            priorities.append(priority)
+            experiences.append(experience)
+            indices.append(idx)
         
-        indices = np.random.choice(len(self.buffer), batch_size, p=probabilities)
-        experiences = [self.buffer[idx] for idx in indices]
+        sampling_probabilities = np.array(priorities) / self.tree.total()
+        is_weight = np.power(self.tree.n_entries * sampling_probabilities, -beta)
+        is_weight /= is_weight.max()
         
-        # Calculate importance sampling weights
-        total = len(self.buffer)
-        weights = (total * probabilities[indices]) ** (-beta)
-        weights /= weights.max()
-        
-        return experiences, indices, torch.FloatTensor(weights).to(device)
+        return experiences, indices, torch.FloatTensor(is_weight).to(device)
     
     def update_priorities(self, indices: List[int], priorities: np.ndarray):
-        """Update priorities based on TD error"""
+        """Update priorities based on TD error - O(log n)"""
         for idx, priority in zip(indices, priorities):
-            self.priorities[idx] = priority + 1e-6
+            priority = (priority + 1e-6) ** self.alpha
+            self.max_priority = max(self.max_priority, priority)
+            self.tree.update(idx, priority)
+    
+    @property
+    def buffer(self):
+        """Compatibility property for buffer length check"""
+        class BufferWrapper:
+            def __init__(self, n_entries):
+                self.n_entries = n_entries
+            def __len__(self):
+                return self.n_entries
+        return BufferWrapper(self.tree.n_entries)
 
 class TradingAgent:
     """Enhanced RL Trading Agent with advanced features"""
@@ -819,13 +1108,16 @@ class TradingAgent:
         self.action_size = action_size
         self.memory = PrioritizedReplayBuffer(Config.MEMORY_SIZE)
         
+        # N-step buffer for storing transitions
+        self.n_step_buffer = deque(maxlen=Config.N_STEPS)
+        
         # RL parameters
         self.gamma = Config.GAMMA
         self.epsilon = Config.EPSILON
         self.epsilon_min = Config.EPSILON_MIN
         self.epsilon_decay = Config.EPSILON_DECAY
-        self.beta = 0.4  # For importance sampling
-        self.beta_increment = 0.001
+        self.beta = Config.PER_BETA_START  # For importance sampling
+        self.beta_increment = (Config.PER_BETA_END - Config.PER_BETA_START) / Config.PER_BETA_STEPS
         
         # Neural networks - use CNN version
         self.use_cnn = True  # Flag to enable CNN
@@ -842,12 +1134,24 @@ class TradingAgent:
             self.target_network = DuelingDQN(state_size, action_size).to(device)
         self.update_target_model()
         
+        # Compile models for performance if enabled
+        if Config.USE_TORCH_COMPILE and hasattr(torch, 'compile'):
+            try:
+                self.q_network = torch.compile(self.q_network, mode='reduce-overhead')
+                self.target_network = torch.compile(self.target_network, mode='reduce-overhead')
+                print("Models compiled with torch.compile")
+            except:
+                print("torch.compile not available or failed, using regular models")
+        
         # Optimizer
         self.optimizer = optim.Adam(self.q_network.parameters(), 
                                    lr=Config.LEARNING_RATE)
         self.scheduler = optim.lr_scheduler.ReduceLROnPlateau(
             self.optimizer, mode='max', factor=0.5, patience=10
         )
+        
+        # AMP scaler for mixed precision training
+        self.scaler = torch.amp.GradScaler('cuda') if Config.USE_AMP and device.type == 'cuda' else None
         
         self.update_counter = 0
         
@@ -856,38 +1160,44 @@ class TradingAgent:
         self.target_network.load_state_dict(self.q_network.state_dict())
     
     def remember(self, state, action, reward, next_state, done):
-        """Store experience in replay memory - now with torch tensors"""
+        """Store experience in n-step buffer and compute n-step returns"""
         # Ensure states are tensors on device
         if not isinstance(state, torch.Tensor):
             state = torch.tensor(state, device=device, dtype=torch.float32)
         if not isinstance(next_state, torch.Tensor):
             next_state = torch.tensor(next_state, device=device, dtype=torch.float32)
         
-        experience = Experience(state, action, reward, next_state, done)
-        self.memory.push(experience)
+        # Add to n-step buffer
+        self.n_step_buffer.append(Experience(state, action, reward, next_state, done))
+        
+        # Only process if we have enough steps or episode is done
+        if len(self.n_step_buffer) >= Config.N_STEPS or done:
+            self._process_n_step_buffer()
     
     def act(self, state: torch.Tensor, signal: float = 0.0, has_position: bool = False) -> int:
-        """Choose action using epsilon-greedy policy with signal-based masking
+        """Choose action using epsilon-greedy policy with strict one-trade-at-a-time masking
         
-        Action masking based on Composite_Signal and position state:
-        - If signal > 0.35: disable Sell (action 2)
-        - If signal < -0.35: disable Buy (action 1)
-        - If no position: disable Close (action 3)
+        Action masking for one trade at a time:
+        - If has position: can only Hold (0) or Close (3)
+        - If no position: can only Hold (0), Buy (1), or Sell (2)
+        - Additional signal-based filtering when opening positions
         """
-        # Epsilon-greedy with masked actions
-        if random.random() <= self.epsilon:
-            # Create action mask based on signal and position
-            valid_actions = [0, 1, 2, 3]  # Hold, Buy, Sell, Close
-            
-            if not has_position:
-                valid_actions.remove(3)  # Remove Close when no position
-            
-            if signal > 0.35:  # Stronger bullish signal required
-                if 2 in valid_actions:
+        # Epsilon-greedy with masked actions (reduced if using NoisyNet)
+        effective_epsilon = self.epsilon * 0.1 if Config.USE_NOISY_NET else self.epsilon
+        if random.random() <= effective_epsilon:
+            if has_position:
+                # Can only hold or close when we have a position
+                valid_actions = [0, 3]
+            else:
+                # Can only hold or open new position when flat
+                valid_actions = [0, 1, 2]
+                
+                # Apply signal-based filtering for new positions
+                if signal > 0.35 and 2 in valid_actions:
                     valid_actions.remove(2)  # Remove Sell when strongly bullish
-            elif signal < -0.35:  # Stronger bearish signal required
-                if 1 in valid_actions:
+                elif signal < -0.35 and 1 in valid_actions:
                     valid_actions.remove(1)  # Remove Buy when strongly bearish
+            
             return random.choice(valid_actions)
         
         # Get Q-values - state is already a tensor on device!
@@ -896,7 +1206,12 @@ class TradingAgent:
         
         self.q_network.eval()
         with torch.no_grad():
-            q_values = self.q_network(state)
+            # Use autocast for inference if AMP is enabled
+            if Config.USE_AMP and device.type == 'cuda':
+                with torch.amp.autocast('cuda'):
+                    q_values = self.q_network(state)
+            else:
+                q_values = self.q_network(state)
         self.q_network.train()
         
         # Add exploration bonus
@@ -904,14 +1219,20 @@ class TradingAgent:
         exploration_bonus = np.random.normal(0, 0.01, self.action_size)
         q_values_np += exploration_bonus
         
-        # Apply action masking based on signal and position
-        if not has_position:
-            q_values_np[3] = -1e9  # Mask Close when no position
+        # Apply strict one-trade-at-a-time masking
+        if has_position:
+            # Can only hold or close
+            q_values_np[1] = -1e9  # Mask Buy
+            q_values_np[2] = -1e9  # Mask Sell
+        else:
+            # Can only hold or open new
+            q_values_np[3] = -1e9  # Mask Close
             
-        if signal > 0.35:  # Stronger bullish signal required
-            q_values_np[2] = -1e9  # Mask Sell when strongly bullish
-        elif signal < -0.35:  # Stronger bearish signal required
-            q_values_np[1] = -1e9  # Mask Buy when strongly bearish
+            # Additional signal-based filtering for new positions
+            if signal > 0.35:
+                q_values_np[2] = -1e9  # Mask Sell when strongly bullish
+            elif signal < -0.35:
+                q_values_np[1] = -1e9  # Mask Buy when strongly bearish
         
         return np.argmax(q_values_np)
     
@@ -930,33 +1251,66 @@ class TradingAgent:
         next_states = torch.stack([e.next_state for e in experiences])
         dones = torch.FloatTensor([e.done for e in experiences]).to(device)
         
-        # Current Q-values
-        current_q_values = self.q_network(states).gather(1, actions.unsqueeze(1))
+        # Use AMP autocast for forward passes if enabled
+        if Config.USE_AMP and device.type == 'cuda':
+            with torch.amp.autocast('cuda'):
+                if self.use_c51:
+                    # C51 Distributional loss
+                    loss, priorities = self._compute_c51_loss(states, actions, rewards, next_states, dones, weights)
+                else:
+                    # Standard DQN loss
+                    # Current Q-values
+                    current_q_values = self.q_network(states).gather(1, actions.unsqueeze(1))
+                    
+                    # Next Q-values using Double DQN
+                    with torch.no_grad():
+                        next_actions = self.q_network(next_states).argmax(1).unsqueeze(1)
+                        next_q_values = self.target_network(next_states).gather(1, next_actions).squeeze()
+                        target_q_values = rewards + (1 - dones) * self.gamma * next_q_values
+                    
+                    # Calculate loss with importance sampling
+                    td_errors = target_q_values.unsqueeze(1) - current_q_values
+                    loss = (weights.unsqueeze(1) * td_errors.pow(2)).mean()
+                    
+                    # Update priorities
+                    priorities = td_errors.detach().abs().cpu().numpy().squeeze()
+        else:
+            if self.use_c51:
+                # C51 Distributional loss
+                loss, priorities = self._compute_c51_loss(states, actions, rewards, next_states, dones, weights)
+            else:
+                # Standard DQN loss
+                # Current Q-values
+                current_q_values = self.q_network(states).gather(1, actions.unsqueeze(1))
+                
+                # Next Q-values using Double DQN
+                with torch.no_grad():
+                    next_actions = self.q_network(next_states).argmax(1).unsqueeze(1)
+                    next_q_values = self.target_network(next_states).gather(1, next_actions).squeeze()
+                    target_q_values = rewards + (1 - dones) * self.gamma * next_q_values
+                
+                # Calculate loss with importance sampling
+                td_errors = target_q_values.unsqueeze(1) - current_q_values
+                loss = (weights.unsqueeze(1) * td_errors.pow(2)).mean()
+                
+                # Update priorities
+                priorities = td_errors.detach().abs().cpu().numpy().squeeze()
         
-        # Next Q-values using Double DQN
-        with torch.no_grad():
-            next_actions = self.q_network(next_states).argmax(1).unsqueeze(1)
-            next_q_values = self.target_network(next_states).gather(1, next_actions).squeeze()
-            target_q_values = rewards + (1 - dones) * self.gamma * next_q_values
-        
-        # Calculate loss with importance sampling
-        td_errors = target_q_values.unsqueeze(1) - current_q_values
-        loss = (weights.unsqueeze(1) * td_errors.pow(2)).mean()
-        
-        # Update priorities
-        priorities = td_errors.detach().abs().cpu().numpy().squeeze()
         self.memory.update_priorities(indices, priorities)
         
-        # Optimize model
+        # Optimize model with AMP if enabled
         self.optimizer.zero_grad()
-        loss.backward()
-        torch.nn.utils.clip_grad_norm_(self.q_network.parameters(), 1.0)
         
-        # Remove MPS sync for speed - only enable if deadlock occurs
-        # if device.type == 'mps':
-        #     torch.mps.synchronize()
-            
-        self.optimizer.step()
+        if self.scaler is not None:  # Using AMP
+            self.scaler.scale(loss).backward()
+            self.scaler.unscale_(self.optimizer)
+            torch.nn.utils.clip_grad_norm_(self.q_network.parameters(), 1.0)
+            self.scaler.step(self.optimizer)
+            self.scaler.update()
+        else:
+            loss.backward()
+            torch.nn.utils.clip_grad_norm_(self.q_network.parameters(), 1.0)
+            self.optimizer.step()
         
         # Update target network
         self.update_counter += 1
@@ -965,10 +1319,123 @@ class TradingAgent:
         
         # Removed per-step epsilon decay - moved to episode level
         
+        # Reset noise in networks if using NoisyNet
+        if Config.USE_NOISY_NET:
+            self.q_network.reset_noise()
+            self.target_network.reset_noise()
+        
         # Increment beta
         self.beta = min(1.0, self.beta + self.beta_increment)
         
         return loss.item()
+    
+    def _process_n_step_buffer(self):
+        """Process n-step buffer to compute n-step returns"""
+        # Get the first transition
+        first_exp = self.n_step_buffer[0]
+        
+        # Calculate n-step return
+        n_step_reward = 0
+        gamma_power = 1
+        
+        for i, exp in enumerate(self.n_step_buffer):
+            n_step_reward += gamma_power * exp.reward
+            gamma_power *= self.gamma
+            
+            if exp.done:
+                # Episode ended, use this as final state
+                n_step_exp = NStepExperience(
+                    first_exp.state, first_exp.action, n_step_reward,
+                    exp.next_state, True, i + 1
+                )
+                # Convert back to regular experience for compatibility
+                final_exp = Experience(
+                    first_exp.state, first_exp.action, n_step_reward,
+                    exp.next_state, True
+                )
+                self.memory.push(final_exp)
+                
+                # Clear the buffer since episode ended
+                self.n_step_buffer.clear()
+                return
+        
+        # If buffer is full (n steps), create n-step experience
+        if len(self.n_step_buffer) == Config.N_STEPS:
+            last_exp = self.n_step_buffer[-1]
+            n_step_exp = NStepExperience(
+                first_exp.state, first_exp.action, n_step_reward,
+                last_exp.next_state, False, Config.N_STEPS
+            )
+            # Convert to regular experience
+            final_exp = Experience(
+                first_exp.state, first_exp.action, n_step_reward,
+                last_exp.next_state, False
+            )
+            self.memory.push(final_exp)
+            
+            # Remove only the first element to maintain sliding window
+            self.n_step_buffer.popleft()
+    
+    def _compute_c51_loss(self, states, actions, rewards, next_states, dones, weights):
+        """Compute C51 distributional loss"""
+        batch_size = states.size(0)
+        
+        # Get current action distributions
+        current_dist = self.q_network(states, return_dist=True)
+        current_action_dist = current_dist.gather(1, actions.unsqueeze(1).unsqueeze(2).expand(
+            batch_size, 1, self.q_network.n_atoms)).squeeze(1)
+        
+        with torch.no_grad():
+            # Double DQN action selection
+            next_q_values = self.q_network(next_states, return_dist=False)
+            next_actions = next_q_values.argmax(1)
+            
+            # Get target distributions
+            target_dist = self.target_network(next_states, return_dist=True)
+            target_action_dist = target_dist.gather(1, next_actions.unsqueeze(1).unsqueeze(2).expand(
+                batch_size, 1, self.target_network.n_atoms)).squeeze(1)
+            
+            # Compute projected distribution
+            support = self.q_network.support
+            delta_z = self.q_network.delta_z
+            v_min = self.q_network.v_min
+            v_max = self.q_network.v_max
+            
+            # Compute Tz (projected support)
+            rewards = rewards.unsqueeze(1)
+            dones = dones.unsqueeze(1)
+            gamma = self.gamma ** self.n_step_buffer.maxlen if hasattr(self, 'n_step_buffer') else self.gamma
+            
+            tz = rewards + (1 - dones) * gamma * support.unsqueeze(0)
+            tz = tz.clamp(min=v_min, max=v_max)
+            
+            # Compute projection indices
+            b = (tz - v_min) / delta_z
+            l = b.floor().long()
+            u = b.ceil().long()
+            
+            # Distribute probability mass
+            m = torch.zeros_like(target_action_dist)
+            offset = torch.linspace(0, (batch_size - 1) * self.q_network.n_atoms, batch_size,
+                                  dtype=torch.long, device=device).unsqueeze(1).expand(batch_size, self.q_network.n_atoms)
+            
+            # Lower projection
+            m.view(-1).index_add_(0, (l + offset).view(-1),
+                                 (target_action_dist * (u.float() - b)).view(-1))
+            # Upper projection
+            m.view(-1).index_add_(0, (u + offset).view(-1),
+                                 (target_action_dist * (b - l.float())).view(-1))
+        
+        # Cross-entropy loss with importance weights
+        loss = -(m * current_action_dist.clamp(min=1e-8).log()).sum(1)
+        weighted_loss = (weights * loss).mean()
+        
+        # Compute priorities as KL divergence
+        with torch.no_grad():
+            kl_div = (m * (m.clamp(min=1e-8).log() - current_action_dist.clamp(min=1e-8).log())).sum(1)
+            priorities = kl_div.cpu().numpy()
+        
+        return weighted_loss, priorities
 
 # %% Training Functions
 def train_agent(agent: TradingAgent, env: TradingEnvironment, df_train: pd.DataFrame,
@@ -1019,18 +1486,22 @@ def train_agent(agent: TradingAgent, env: TradingEnvironment, df_train: pd.DataF
         # Track position history for visualization
         position_history = []
         
-        # Batch training accumulator
-        training_step_counter = 0
-        BATCH_FREQUENCY = 4  # Train every 4 steps instead of every step
+        # Track step rewards for distribution logging
+        step_rewards = []
         
         # Cache frequently accessed data
         composite_signals_train = df_train['Composite_Signal'].values
         
         # Training loop with ETA tracking
         start_time_episode = time.time()
-        pbar = tqdm(range(start_idx, end_idx - 1), 
+        pbar = tqdm(range(start_idx, end_idx), 
                    desc=f"Episode {episode+1}/{episodes}",
-                   miniters=100)  # Limit tqdm redraws for performance
+                   mininterval=1.0)  # Update progress bar only once per second
+        
+        # Local buffer and training frequency settings
+        local_buffer = []
+        COLLECT_STEPS = 256  # Reduced from 512 for more frequent training
+        TRAIN_ITERATIONS = 16  # Increased from 8 for more gradient steps
         
         for t in pbar:
             # Get composite signal for action masking - use cached array
@@ -1040,8 +1511,9 @@ def train_agent(agent: TradingAgent, env: TradingEnvironment, df_train: pd.DataF
             action = agent.act(state, composite_signal, has_position=bool(env.position))
             
             # Execute action
-            reward, info = env.execute_action(action, t)
+            reward, _ = env.execute_action(action, t)
             total_reward += reward
+            step_rewards.append(reward)
             
             # Track position for visualization
             if env.position:
@@ -1059,30 +1531,63 @@ def train_agent(agent: TradingAgent, env: TradingEnvironment, df_train: pd.DataF
             
             # Get next state
             next_state = env.get_state(t + 1, window_size)
-            done = (t == end_idx - 2)
+            done = (t == end_idx - 1)
             
-            # Store experience - states are already tensors
-            agent.remember(state, action, reward, next_state, done)
+            # Store experience in the LOCAL buffer first, not the main agent memory
+            experience = Experience(state, action, reward, next_state, done)
+            local_buffer.append(experience)
             state = next_state
             
-            # Batch training - only train every BATCH_FREQUENCY steps
-            training_step_counter += 1
-            if training_step_counter >= BATCH_FREQUENCY and len(agent.memory.buffer) > Config.BATCH_SIZE:
-                _ = agent.replay(Config.BATCH_SIZE)
-                training_step_counter = 0
+            # Check if it's time to train
+            if len(local_buffer) >= COLLECT_STEPS:
+                # 1. Push all collected experiences to the main replay buffer
+                for exp in local_buffer:
+                    agent.remember(exp.state, exp.action, exp.reward, exp.next_state, exp.done)
+                
+                # 2. Clear the local buffer
+                local_buffer = []
+                
+                # 3. Run a concentrated training phase
+                if len(agent.memory.buffer) > Config.BATCH_SIZE:
+                    pbar.set_description(f"Episode {episode+1}/{episodes} [Training...]")
+                    for _ in range(TRAIN_ITERATIONS):
+                        agent.replay(Config.BATCH_SIZE)
+                    pbar.set_description(f"Episode {episode+1}/{episodes}")
             
-            # Update progress bar with USD profit and ETA
-            if (t - start_idx) % 100 == 0 and t > start_idx:
+            # Update progress bar less frequently
+            if (t - start_idx) % 250 == 0 and t > start_idx:
                 elapsed = time.time() - start_time_episode
                 avg_per_bar = elapsed / (t - start_idx + 1)
                 remaining_bars = end_idx - 1 - t
                 eta_seconds = remaining_bars * avg_per_bar
+                
+                # Use equity curve for live P&L
+                live_profit = env.equity_curve[-1] - env.initial_balance if env.equity_curve else 0
+                
                 pbar.set_postfix({
-                    'Profit': f"${env.balance - env.initial_balance:,.0f}",
+                    'Profit': f"${live_profit:,.2f}",
                     'Trades': len(env.trade_history),
                     'ε': f"{agent.epsilon:.3f}",
                     'ETA': f"{eta_seconds/60:.1f}m"
                 })
+                pbar.refresh()  # Force refresh
+        
+        # Push any remaining experiences in local buffer to main memory
+        if local_buffer:
+            for exp in local_buffer:
+                agent.remember(exp.state, exp.action, exp.reward, exp.next_state, exp.done)
+            local_buffer = []
+        
+        # Force final postfix update with actual end-of-episode values
+        final_profit = env.equity_curve[-1] - env.initial_balance if env.equity_curve else env.balance - env.initial_balance
+        pbar.set_postfix({
+            'Profit': f"${final_profit:,.2f}",
+            'Trades': len(env.trade_history),
+            'ε': f"{agent.epsilon:.3f}",
+            'ETA': "0.0m"
+        })
+        pbar.refresh()  # Force final refresh
+        pbar.close()
         
         # Episode summary with USD profits
         final_profit_usd = env.balance - env.initial_balance
@@ -1093,15 +1598,17 @@ def train_agent(agent: TradingAgent, env: TradingEnvironment, df_train: pd.DataF
             wins = [t for t in trades if t['pnl'] > 0]
             win_rate = len(wins) / len(trades) * 100
             
-            # Exit type statistics
+            # Exit type statistics - including early close
             tp_exits = sum(1 for t in trades if t.get('tp_exit', False))
             sl_exits = sum(1 for t in trades if t.get('sl_exit', False))
             manual_exits = sum(1 for t in trades if t.get('manual_exit', False))
+            early_exits = sum(1 for t in trades if t.get('early_exit', False))
             
             # Exit type percentages
             pct_tp = (tp_exits / len(trades)) * 100 if trades else 0
             pct_sl = (sl_exits / len(trades)) * 100 if trades else 0
             pct_manual = (manual_exits / len(trades)) * 100 if trades else 0
+            pct_early = (early_exits / len(trades)) * 100 if trades else 0
             
             # Average drawdown
             avg_drawdown = np.mean([t.get('drawdown', 0) for t in trades]) * 100
@@ -1110,8 +1617,8 @@ def train_agent(agent: TradingAgent, env: TradingEnvironment, df_train: pd.DataF
             avg_loss = np.mean([t['pnl'] for t in trades if t['pnl'] <= 0]) if len(trades) > len(wins) else 0
         else:
             win_rate = 0
-            tp_exits = sl_exits = manual_exits = 0
-            pct_tp = pct_sl = pct_manual = 0
+            tp_exits = sl_exits = manual_exits = early_exits = 0
+            pct_tp = pct_sl = pct_manual = pct_early = 0
             avg_drawdown = 0
             avg_win = 0
             avg_loss = 0
@@ -1138,7 +1645,7 @@ def train_agent(agent: TradingAgent, env: TradingEnvironment, df_train: pd.DataF
         if trades:
             print(f"  Win Rate: {win_rate:.1f}%")
             print(f"  Avg Win: ${avg_win:.2f}, Avg Loss: ${avg_loss:.2f}")
-            print(f"  Exit Types: TP={pct_tp:.1f}%, SL={pct_sl:.1f}%, Manual={pct_manual:.1f}%")
+            print(f"  Exit Types: TP={pct_tp:.1f}%, SL={pct_sl:.1f}%, Manual={pct_manual:.1f}%, Early={pct_early:.1f}%")
             print(f"  Avg Drawdown: {avg_drawdown:.1f}%")
         
         episode_rewards.append(total_reward)
@@ -1160,9 +1667,9 @@ def train_agent(agent: TradingAgent, env: TradingEnvironment, df_train: pd.DataF
         # Cap exploration and anneal parameters
         # Accelerate early exploitation for first 5 episodes
         if episode < 5:
-            agent.epsilon = max(0.05, agent.epsilon * 0.90)  # Faster decay early
+            agent.epsilon = max(Config.EPSILON_MIN, agent.epsilon * 0.90)  # Faster decay early
         else:
-            agent.epsilon = max(0.05, agent.epsilon * 0.99)  # Normal decay later
+            agent.epsilon = max(Config.EPSILON_MIN, agent.epsilon * 0.99)  # Normal decay later
         print(f"  Current Epsilon: {agent.epsilon:.4f}")
         
         # Anneal PER beta: linear from 0.4 to 1.0 based on total steps
@@ -1184,11 +1691,18 @@ def train_agent(agent: TradingAgent, env: TradingEnvironment, df_train: pd.DataF
             writer.add_scalar('Hyperparameters/Beta', agent.beta, ep_num)
             writer.add_scalar('Hyperparameters/Learning_Rate', agent.optimizer.param_groups[0]['lr'], ep_num)
             
+            # Log step reward distribution
+            if step_rewards:
+                writer.add_histogram('Rewards/Step_Rewards_Distribution', np.array(step_rewards), ep_num)
+                writer.add_scalar('Rewards/Mean_Step_Reward', np.mean(step_rewards), ep_num)
+                writer.add_scalar('Rewards/Std_Step_Reward', np.std(step_rewards), ep_num)
+            
             # Log exit type percentages
             if trades:
                 writer.add_scalar('ExitTypes/TP_Percentage', pct_tp, ep_num)
                 writer.add_scalar('ExitTypes/SL_Percentage', pct_sl, ep_num)
                 writer.add_scalar('ExitTypes/Manual_Percentage', pct_manual, ep_num)
+                writer.add_scalar('ExitTypes/Early_Percentage', pct_early, ep_num)
                 writer.add_scalar('Trades/Avg_Win', avg_win, ep_num)
                 writer.add_scalar('Trades/Avg_Loss', avg_loss, ep_num)
             
@@ -1457,33 +1971,34 @@ def main(fast_mode: bool = False):
     # Initialize TensorBoard if available
     writer = None
     activations = None
-    if TENSORBOARD_AVAILABLE:
-        writer = SummaryWriter(f'runs/audusd_agent_v2_{time.strftime("%Y%m%d_%H%M%S")}')
-        
-        # Log model graph (optional)
-        dummy_state = torch.zeros((1, state_size), device=device)
-        try:
-            writer.add_graph(agent.q_network, dummy_state)
-        except:
-            print("Could not log model graph to TensorBoard")
-        
-        # Register forward hooks to capture activations
-        activations = {}
-        def get_activation(name):
-            def hook(model, input, output):
-                activations[name] = output.detach()
-            return hook
-        
-        # Attach hooks to key layers
-        if agent.use_cnn:
-            agent.q_network.conv[1].register_forward_hook(get_activation('conv1_relu'))
-            agent.q_network.conv[4].register_forward_hook(get_activation('conv2_relu'))
-        agent.q_network.value[0].register_forward_hook(get_activation('value_fc'))
-        agent.q_network.advantage[0].register_forward_hook(get_activation('advantage_fc'))
+    # Disable TensorBoard logging for speed optimization
+    # if TENSORBOARD_AVAILABLE:
+    #     writer = SummaryWriter(f'runs/audusd_agent_v2_{time.strftime("%Y%m%d_%H%M%S")}')
+    #     
+    #     # Log model graph (optional)
+    #     dummy_state = torch.zeros((1, state_size), device=device)
+    #     try:
+    #         writer.add_graph(agent.q_network, dummy_state)
+    #     except:
+    #         print("Could not log model graph to TensorBoard")
+    #     
+    #     # Register forward hooks to capture activations
+    #     activations = {}
+    #     def get_activation(name):
+    #         def hook(model, input, output):
+    #             activations[name] = output.detach()
+    #         return hook
+    #     
+    #     # Attach hooks to key layers
+    #     if agent.use_cnn:
+    #         agent.q_network.conv[1].register_forward_hook(get_activation('conv1_relu'))
+    #         agent.q_network.conv[4].register_forward_hook(get_activation('conv2_relu'))
+    #     agent.q_network.value[0].register_forward_hook(get_activation('value_fc'))
+    #     agent.q_network.advantage[0].register_forward_hook(get_activation('advantage_fc'))
     
     # Start training
     print("\nStarting training...")
-    episodes = 10 if fast_mode else Config.EPISODES
+    episodes = 20 if fast_mode else Config.EPISODES
     _, episode_profits, episode_sharpes = train_agent(
         agent, env, df_train, Config.WINDOW_SIZE, episodes, fast_mode,
         writer=writer, activations=activations
@@ -1562,11 +2077,13 @@ def main(fast_mode: bool = False):
         test_tp_exits = sum(1 for t in test_trades_data if t.get('tp_exit', False))
         test_sl_exits = sum(1 for t in test_trades_data if t.get('sl_exit', False))
         test_manual_exits = sum(1 for t in test_trades_data if t.get('manual_exit', False))
+        test_early_exits = sum(1 for t in test_trades_data if t.get('early_exit', False))
         
         # Exit type percentages
         test_pct_tp = (test_tp_exits / len(test_trades_data)) * 100
         test_pct_sl = (test_sl_exits / len(test_trades_data)) * 100
         test_pct_manual = (test_manual_exits / len(test_trades_data)) * 100
+        test_pct_early = (test_early_exits / len(test_trades_data)) * 100
         
         # Average drawdown
         test_avg_drawdown = np.mean([t.get('drawdown', 0) for t in test_trades_data]) * 100
@@ -1577,7 +2094,7 @@ def main(fast_mode: bool = False):
         print(f"Win Rate: {test_win_rate:.1f}%")
         print(f"Sharpe Ratio (Daily): {sharpe:.2f}")
         print(f"Max Drawdown: {max_dd:.1f}%")
-        print(f"Exit Types: TP={test_pct_tp:.1f}%, SL={test_pct_sl:.1f}%, Manual={test_pct_manual:.1f}%")
+        print(f"Exit Types: TP={test_pct_tp:.1f}%, SL={test_pct_sl:.1f}%, Manual={test_pct_manual:.1f}%, Early={test_pct_early:.1f}%")
         print(f"Avg Drawdown per Trade: {test_avg_drawdown:.1f}%")
     else:
         print("\nNo trades executed during testing")
@@ -1603,7 +2120,7 @@ def main(fast_mode: bool = False):
         writer.close()
         print("\nTraining complete! Results and TensorBoard logs saved.")
         print("\nTo view TensorBoard logs, run:")
-        print("  tensorboard --logdir=runs")
+        print("  python -m tensorboard.main --logdir=runs --host=localhost --port=6006")
         print("Then open http://localhost:6006/ in your browser.")
     else:
         print("\nTraining complete! Results saved.")
