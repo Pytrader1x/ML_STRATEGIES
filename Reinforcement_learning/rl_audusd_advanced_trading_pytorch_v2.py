@@ -1392,9 +1392,7 @@ class TradingAgent:
         if self.update_counter % Config.UPDATE_TARGET_EVERY == 0:
             self.update_target_model()
         
-        # Per-step exponential epsilon decay
-        self.global_step += 1
-        self.epsilon = max(self.epsilon_end, self.epsilon_start * math.exp(-self.epsilon_decay_rate * self.global_step))
+        # Epsilon decay is now handled per environment step in train_agent
         
         # Reset noise in networks if using NoisyNet
         if Config.USE_NOISY_NET and hasattr(self.q_network, 'reset_noise'):
@@ -1581,6 +1579,10 @@ def train_agent(agent: TradingAgent, env: TradingEnvironment, df_train: pd.DataF
             
             # Agent takes action with signal-based masking
             action = agent.act(state, composite_signal, has_position=bool(env.position))
+            
+            # Update epsilon decay per environment step
+            agent.global_step += 1
+            agent.epsilon = max(agent.epsilon_end, agent.epsilon_start * math.exp(-agent.epsilon_decay_rate * agent.global_step))
             
             # Execute action
             reward, _ = env.execute_action(action, t)
