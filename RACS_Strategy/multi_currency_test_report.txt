@@ -1,0 +1,49 @@
+================================================================================
+MULTI-CURRENCY STRATEGY TEST REPORT
+================================================================================
+
+Generated: 2025-06-17 17:48:12
+Test Period: last_50000
+
+Strategy: Momentum (Z-Score Mean Reversion)
+Parameters:
+  - Lookback: 40 bars
+  - Entry Z-Score: 1.5
+  - Exit Z-Score: 0.5
+
+Original Performance (AUDUSD):
+  - Sharpe Ratio: 1.286
+  - Discovered via optimization on AUDUSD data
+
+================================================================================
+RESULTS SUMMARY
+================================================================================
+
+Best Performer: AUDUSD
+  - Sharpe: 1.933
+  - Returns: 26.6%
+  - Win Rate: 51.9%
+
+Worst Performer: AUDJPY
+  - Sharpe: 0.110
+  - Returns: 1.1%
+  - Win Rate: 51.3%
+
+Overall Statistics:
+  - Average Sharpe: 1.126
+  - Sharpe Std Dev: 0.742
+  - Currencies with Sharpe > 0: 6/6
+  - Currencies with Sharpe > 1.0: 3/6
+
+================================================================================
+ROBUSTNESS ASSESSMENT
+================================================================================
+
+Conclusion: Strategy shows GOOD robustness
+  - Positive performance across most currency pairs
+  - Not overfitted to AUDUSD
+
+Recommendations:
+  1. Strategy is suitable for multi-currency trading
+  2. Consider position sizing based on individual pair performance
+  3. Monitor performance regularly across all pairs
