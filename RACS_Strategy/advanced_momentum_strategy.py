@@ -29,6 +29,8 @@ class AdvancedMomentumStrategy:
                  sl_atr_multiplier: float = 2.0,
                  tp_atr_multiplier: float = 3.0,
                  trailing_sl_atr: float = 1.5,
+                 fixed_sl_pips: float = 60,  # Fixed stop loss in pips
+                 use_fixed_sl: bool = True,  # Use fixed SL instead of ATR
                  risk_per_trade: float = 0.02,  # 2% risk per trade
                  initial_capital: float = 10000):
         """
@@ -61,6 +63,9 @@ class AdvancedMomentumStrategy:
         self.sl_atr_multiplier = sl_atr_multiplier
         self.tp_atr_multiplier = tp_atr_multiplier
         self.trailing_sl_atr = trailing_sl_atr
+        self.fixed_sl_pips = fixed_sl_pips
+        self.use_fixed_sl = use_fixed_sl
+        self.pip_value = 0.0001  # Standard pip value for AUD/USD
         self.risk_per_trade = risk_per_trade
         self.initial_capital = initial_capital
         
@@ -150,7 +155,13 @@ class AdvancedMomentumStrategy:
                 else:
                     # Update trailing stop
                     if self.current_position > 0:
-                        new_trailing_stop = current_price - (self.trailing_sl_atr * current_atr)
+                        if self.use_fixed_sl:
+                            # Use fixed trailing stop distance
+                            trailing_distance = 40 * self.pip_value  # 40 pips trailing
+                            new_trailing_stop = current_price - trailing_distance
+                        else:
+                            new_trailing_stop = current_price - (self.trailing_sl_atr * current_atr)
+                        
                         if new_trailing_stop > self.trailing_stop:
                             self.trailing_stop = new_trailing_stop
                             df.loc[df.index[i], 'Trailing_Stop'] = self.trailing_stop
@@ -160,7 +171,13 @@ class AdvancedMomentumStrategy:
                             self.close_position(i, df, 'Trailing Stop', current_capital)
                             
                     else:  # Short position
-                        new_trailing_stop = current_price + (self.trailing_sl_atr * current_atr)
+                        if self.use_fixed_sl:
+                            # Use fixed trailing stop distance
+                            trailing_distance = 40 * self.pip_value  # 40 pips trailing
+                            new_trailing_stop = current_price + trailing_distance
+                        else:
+                            new_trailing_stop = current_price + (self.trailing_sl_atr * current_atr)
+                        
                         if new_trailing_stop < self.trailing_stop:
                             self.trailing_stop = new_trailing_stop
                             df.loc[df.index[i], 'Trailing_Stop'] = self.trailing_stop
@@ -177,8 +194,15 @@ class AdvancedMomentumStrategy:
             if self.current_position == 0:
                 # Long entry
                 if current_z < -self.entry_z:
-                    self.stop_loss = current_price - (self.sl_atr_multiplier * current_atr)
-                    self.take_profit = current_price + (self.tp_atr_multiplier * current_atr)
+                    if self.use_fixed_sl:
+                        # Use fixed stop loss in pips
+                        sl_distance = self.fixed_sl_pips * self.pip_value
+                        self.stop_loss = current_price - sl_distance
+                        # Keep TP as ATR-based or make it proportional to SL
+                        self.take_profit = current_price + (self.tp_atr_multiplier * current_atr)
+                    else:
+                        self.stop_loss = current_price - (self.sl_atr_multiplier * current_atr)
+                        self.take_profit = current_price + (self.tp_atr_multiplier * current_atr)
                     self.trailing_stop = self.stop_loss
                     
                     self.position_size = self.calculate_position_size(
@@ -205,8 +229,15 @@ class AdvancedMomentumStrategy:
                 
                 # Short entry
                 elif current_z > self.entry_z:
-                    self.stop_loss = current_price + (self.sl_atr_multiplier * current_atr)
-                    self.take_profit = current_price - (self.tp_atr_multiplier * current_atr)
+                    if self.use_fixed_sl:
+                        # Use fixed stop loss in pips
+                        sl_distance = self.fixed_sl_pips * self.pip_value
+                        self.stop_loss = current_price + sl_distance
+                        # Keep TP as ATR-based or make it proportional to SL
+                        self.take_profit = current_price - (self.tp_atr_multiplier * current_atr)
+                    else:
+                        self.stop_loss = current_price + (self.sl_atr_multiplier * current_atr)
+                        self.take_profit = current_price - (self.tp_atr_multiplier * current_atr)
                     self.trailing_stop = self.stop_loss
                     
                     self.position_size = self.calculate_position_size(

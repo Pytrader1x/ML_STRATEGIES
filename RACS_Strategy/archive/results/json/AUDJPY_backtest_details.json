@@ -1,0 +1,19 @@
+{
+  "currency_pair": "AUDJPY",
+  "test_period": "last_50000",
+  "data_range": "2023-05-01 23:45:00 to 2025-05-30 16:45:00",
+  "bars_tested": 50000,
+  "parameters": {
+    "lookback": 40,
+    "entry_z": 1.5,
+    "exit_z": 0.5
+  },
+  "results": {
+    "sharpe": 0.11049214394152933,
+    "returns": 1.1176790223723199,
+    "win_rate": 51.324102701976074,
+    "max_dd": 7.12687090912853,
+    "trades": 14878
+  },
+  "timestamp": "2025-06-17T17:47:47.883452"
+}

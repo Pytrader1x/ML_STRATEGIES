@@ -1,0 +1,19 @@
+{
+  "currency_pair": "AUDUSD",
+  "test_period": "last_50000",
+  "data_range": "2023-05-02 05:15:00 to 2025-05-30 16:45:00",
+  "bars_tested": 50000,
+  "parameters": {
+    "lookback": 40,
+    "entry_z": 1.5,
+    "exit_z": 0.5
+  },
+  "results": {
+    "sharpe": 1.9331572682247349,
+    "returns": 26.5638965549458,
+    "win_rate": 51.85034013605442,
+    "max_dd": 3.7543209516189107,
+    "trades": 14700
+  },
+  "timestamp": "2025-06-17T17:47:47.788981"
+}

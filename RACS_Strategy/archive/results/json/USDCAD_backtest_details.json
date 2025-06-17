@@ -1,0 +1,19 @@
+{
+  "currency_pair": "USDCAD",
+  "test_period": "last_50000",
+  "data_range": "2023-05-01 23:30:00 to 2025-05-30 16:45:00",
+  "bars_tested": 50000,
+  "parameters": {
+    "lookback": 40,
+    "entry_z": 1.5,
+    "exit_z": 0.5
+  },
+  "results": {
+    "sharpe": 1.8148597237681852,
+    "returns": 14.128488342239764,
+    "win_rate": 51.594122539506515,
+    "max_dd": 2.2515084823189224,
+    "trades": 14428
+  },
+  "timestamp": "2025-06-17T17:47:48.088180"
+}

@@ -1,0 +1,19 @@
+{
+  "currency_pair": "NZDUSD",
+  "test_period": "last_50000",
+  "data_range": "2023-05-02 00:15:00 to 2025-05-30 16:45:00",
+  "bars_tested": 50000,
+  "parameters": {
+    "lookback": 40,
+    "entry_z": 1.5,
+    "exit_z": 0.5
+  },
+  "results": {
+    "sharpe": 1.524473736027018,
+    "returns": 20.143597598888043,
+    "win_rate": 51.56500802568218,
+    "max_dd": 4.556061030350559,
+    "trades": 14952
+  },
+  "timestamp": "2025-06-17T17:47:48.183239"
+}

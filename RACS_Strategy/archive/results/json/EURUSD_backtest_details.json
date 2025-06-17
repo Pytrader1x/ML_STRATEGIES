@@ -1,0 +1,19 @@
+{
+  "currency_pair": "EURUSD",
+  "test_period": "last_50000",
+  "data_range": "2023-05-02 20:30:00 to 2025-05-30 16:45:00",
+  "bars_tested": 50000,
+  "parameters": {
+    "lookback": 40,
+    "entry_z": 1.5,
+    "exit_z": 0.5
+  },
+  "results": {
+    "sharpe": 0.8462560858786194,
+    "returns": 7.7066781143503515,
+    "win_rate": 51.05926521855726,
+    "max_dd": 4.065873454715189,
+    "trades": 14916
+  },
+  "timestamp": "2025-06-17T17:47:48.279586"
+}
