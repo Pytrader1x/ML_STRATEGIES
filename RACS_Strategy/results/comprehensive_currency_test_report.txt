@@ -1,0 +1,17 @@
+================================================================================
+COMPREHENSIVE MULTI-CURRENCY STRATEGY TEST REPORT
+================================================================================
+
+Generated: 2025-06-18 12:25:31
+
+Strategy: Momentum (Z-Score Mean Reversion)
+Parameters:
+  - Lookback: 40 bars
+  - Entry Z-Score: 1.5
+  - Exit Z-Score: 0.5
+
+Overall Performance:
+  - Average Sharpe: 1.665
+  - Positive Sharpe: 8/8
+  - Sharpe > 1.0: 5/8
+  - Average Holding Period: 1.1 hours

@@ -2,7 +2,7 @@
 COMPREHENSIVE MULTI-CURRENCY STRATEGY TEST REPORT
 ================================================================================
 
-Generated: 2025-06-17 17:52:28
+Generated: 2025-06-17 18:01:24
 
 Strategy: Momentum (Z-Score Mean Reversion)
 Parameters:
