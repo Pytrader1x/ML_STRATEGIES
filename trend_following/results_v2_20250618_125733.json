@@ -1,0 +1,34 @@
+{
+  "version": "v2_optimized",
+  "timestamp": "2025-06-18T12:57:33.398366",
+  "parameters": {
+    "risk_per_trade": 0.015,
+    "min_signal_strength": 0.5,
+    "use_ml_filter": true
+  },
+  "metrics": {
+    "total_trades": 2167,
+    "winning_trades": 777,
+    "losing_trades": 1389,
+    "win_rate": 0.35856022150438394,
+    "avg_win": 2522.2796846488527,
+    "avg_loss": -1602.9924646962895,
+    "largest_win": 5853.202606657487,
+    "largest_loss": -11027.561422270515,
+    "profit_factor": 0.8801983176793208,
+    "sharpe_ratio": -0.6824343536694909,
+    "sortino_ratio": -0.8690553531993905,
+    "calmar_ratio": -0.06407678753773562,
+    "max_drawdown": -0.31116214982513535,
+    "total_return": -0.2667452184909885,
+    "annual_return": -0.019938270964130256,
+    "total_pnl": -266745.21849098714,
+    "avg_trade_duration_hours": 5.5320719889247805,
+    "max_consecutive_wins": 7,
+    "max_consecutive_losses": 13,
+    "recovery_factor": -0.8572547099346499,
+    "ulcer_index": 0.212042140564132,
+    "gross_profit": 1959811.3149721618,
+    "gross_loss": 2226556.5334631465
+  }
+}
