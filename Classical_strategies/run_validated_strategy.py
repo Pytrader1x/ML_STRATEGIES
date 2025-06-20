@@ -47,7 +47,7 @@ class ValidatedStrategyRunner:
         
         return self.df
     
-    def create_strategy(self):
+    def create_strategy(self, verbose=None):
         """Create the validated strategy configuration"""
         config = OptimizedStrategyConfig(
             # Capital settings
@@ -99,7 +99,7 @@ class ValidatedStrategyRunner:
             # Other settings
             intelligent_sizing=False,
             sl_volatility_adjustment=True,
-            verbose=False,
+            verbose=verbose if verbose is not None else False,
             debug_decisions=False,
             use_daily_sharpe=True
         )
@@ -265,12 +265,18 @@ class ValidatedStrategyRunner:
             print(f"  ❌ Error generating plot: {str(e)}")
             print("  📊 Continuing without chart...")
     
-    def run_monte_carlo(self, n_simulations=25, sample_size_days=90):
-        """Run Monte Carlo simulation with random contiguous samples"""
+    def run_monte_carlo(self, n_simulations=25, sample_size_days=90, validate=False):
+        """Run Monte Carlo simulation with random contiguous samples
+        
+        Args:
+            n_simulations: Number of Monte Carlo simulations
+            sample_size_days: Number of days in each sample
+            validate: If True, use this as validation mode with stricter criteria
+        """
         if self.df is None:
             self.load_data()
         
-        print(f"\n🎲 MONTE CARLO SIMULATION")
+        print(f"\n🎲 MONTE CARLO {'VALIDATION' if validate else 'SIMULATION'}")
         print(f"="*80)
         print(f"Running {n_simulations} simulations with {sample_size_days}-day samples")
         print(f"Position Size: {self.position_size_millions}M AUD")
@@ -308,11 +314,29 @@ class ValidatedStrategyRunner:
             start_date = sample_df.index[0]
             end_date = sample_df.index[-1]
             
-            print(f"\nSimulation {sim+1}/{n_simulations}: {start_date.strftime('%d %b %Y')} to {end_date.strftime('%d %b %Y')}")
+            # Print progress indicator
+            if sim == 0:
+                print(f"\nProgress: ", end='', flush=True)
+            
+            # Show progress dots
+            if (sim + 1) % 5 == 0:
+                print(f"{sim+1}", end='', flush=True)
+                if (sim + 1) % 50 == 0:
+                    print()  # New line every 50
+                    if sim + 1 < n_simulations:
+                        print("Progress: ", end='', flush=True)
+                else:
+                    print(".", end='', flush=True)
+            
+            # Print detailed info less frequently - every 25 simulations or for first/last
+            if sim == 0 or sim == n_simulations - 1 or (sim + 1) % 25 == 0:
+                if sim > 0:
+                    print()  # New line before detailed output
+                print(f"\nSimulation {sim+1}/{n_simulations}: {start_date.strftime('%d %b %Y')} to {end_date.strftime('%d %b %Y')}")
             
             try:
-                # Create and run strategy
-                strategy = self.create_strategy()
+                # Create and run strategy (suppress config printing)
+                strategy = self.create_strategy(verbose=False)
                 result = strategy.run_backtest(sample_df)
                 
                 # Store results with metadata
@@ -327,23 +351,28 @@ class ValidatedStrategyRunner:
                     last_sample_df = sample_df
                     last_result = result
                 
-                # Print detailed metrics for this run
-                print(f"  Sharpe: {result.get('sharpe_ratio', 0):>6.2f} | "
-                      f"Return: {result.get('total_return', 0):>6.1f}% | "
-                      f"Max DD: {result.get('max_drawdown', 0):>5.1f}% | "
-                      f"Win Rate: {result.get('win_rate', 0):>5.1f}%")
-                print(f"  P&L: ${result.get('total_pnl', 0):>10,.0f} | "
-                      f"Trades: {result.get('total_trades', 0):>4d} | "
-                      f"PF: {result.get('profit_factor', 0):>4.2f} | "
-                      f"Avg Trade: ${result.get('avg_trade', 0):>7,.0f}")
+                # Print detailed metrics only for milestone runs
+                if sim == 0 or sim == n_simulations - 1 or (sim + 1) % 25 == 0:
+                    print(f"  Sharpe: {result.get('sharpe_ratio', 0):>6.2f} | "
+                          f"Return: {result.get('total_return', 0):>6.1f}% | "
+                          f"Max DD: {result.get('max_drawdown', 0):>5.1f}% | "
+                          f"Win Rate: {result.get('win_rate', 0):>5.1f}%")
+                    print(f"  P&L: ${result.get('total_pnl', 0):>10,.0f} | "
+                          f"Trades: {result.get('total_trades', 0):>4d} | "
+                          f"PF: {result.get('profit_factor', 0):>4.2f} | "
+                          f"Avg Trade: ${result.get('avg_trade', 0):>7,.0f}")
                 
             except Exception as e:
                 print(f"  ERROR: {str(e)}")
                 continue
         
+        # Ensure we end progress line
+        if n_simulations > 0:
+            print()  # Final newline after progress
+        
         # Analyze results
         if all_results:
-            self._analyze_monte_carlo_results(all_results, sample_size_days)
+            self._analyze_monte_carlo_results(all_results, sample_size_days, validate=validate)
             
             # Show/save plot for last simulation if requested
             if (self.show_plots or self.save_plots) and last_sample_df is not None and last_result is not None:
@@ -355,10 +384,10 @@ class ValidatedStrategyRunner:
         
         return all_results
     
-    def _analyze_monte_carlo_results(self, results, sample_days):
+    def _analyze_monte_carlo_results(self, results, sample_days, validate=False):
         """Analyze and display Monte Carlo results"""
         print("\n" + "="*80)
-        print("📊 MONTE CARLO ANALYSIS")
+        print(f"📊 MONTE CARLO {'VALIDATION' if validate else 'ANALYSIS'}")
         print("="*80)
         
         # Convert to DataFrame for easy analysis
@@ -450,6 +479,62 @@ class ValidatedStrategyRunner:
             rating = "POOR - Strategy needs significant work"
         
         print(f"Strategy Rating: {rating}")
+        
+        # Validation criteria (if in validation mode)
+        if validate:
+            print(f"\n✅ VALIDATION CRITERIA:")
+            print("="*80)
+            
+            # Define validation thresholds
+            min_sharpe = 0.7
+            min_success_rate = 60.0
+            max_drawdown = 15.0
+            min_profit_factor = 1.2
+            
+            # Check criteria
+            passed_criteria = []
+            failed_criteria = []
+            
+            # 1. Average Sharpe Ratio
+            if avg_sharpe >= min_sharpe:
+                passed_criteria.append(f"✓ Average Sharpe Ratio: {avg_sharpe:.3f} >= {min_sharpe}")
+            else:
+                failed_criteria.append(f"✗ Average Sharpe Ratio: {avg_sharpe:.3f} < {min_sharpe}")
+            
+            # 2. Success Rate
+            success_rate = (df_results['return'] > 0).sum()/len(df_results)*100
+            if success_rate >= min_success_rate:
+                passed_criteria.append(f"✓ Success Rate: {success_rate:.1f}% >= {min_success_rate}%")
+            else:
+                failed_criteria.append(f"✗ Success Rate: {success_rate:.1f}% < {min_success_rate}%")
+            
+            # 3. Maximum Drawdown
+            worst_dd = df_results['max_dd'].max()
+            if worst_dd <= max_drawdown:
+                passed_criteria.append(f"✓ Worst Drawdown: {worst_dd:.1f}% <= {max_drawdown}%")
+            else:
+                failed_criteria.append(f"✗ Worst Drawdown: {worst_dd:.1f}% > {max_drawdown}%")
+            
+            # 4. Average Profit Factor
+            avg_pf = df_results['profit_factor'].mean()
+            if avg_pf >= min_profit_factor:
+                passed_criteria.append(f"✓ Average Profit Factor: {avg_pf:.2f} >= {min_profit_factor}")
+            else:
+                failed_criteria.append(f"✗ Average Profit Factor: {avg_pf:.2f} < {min_profit_factor}")
+            
+            # Print results
+            for criterion in passed_criteria:
+                print(criterion)
+            for criterion in failed_criteria:
+                print(criterion)
+            
+            # Overall validation result
+            if len(failed_criteria) == 0:
+                print(f"\n🎯 VALIDATION RESULT: PASSED ({len(passed_criteria)}/{len(passed_criteria)+len(failed_criteria)} criteria)")
+                print("Strategy is validated for production use!")
+            else:
+                print(f"\n⚠️ VALIDATION RESULT: FAILED ({len(failed_criteria)}/{len(passed_criteria)+len(failed_criteria)} criteria)")
+                print("Strategy needs improvement before production use.")
         
         # Print detailed results table
         print(f"\n📋 DETAILED RESULTS TABLE:")
@@ -702,6 +787,7 @@ def main():
     parser.add_argument('--monte-carlo', type=int, help='Run Monte Carlo simulation with N random samples')
     parser.add_argument('--monte-carlo-all-years', action='store_true', help='Run Monte Carlo across all available years')
     parser.add_argument('--sequential', choices=['yearly', 'quarterly'], help='Run sequential analysis (yearly or quarterly)')
+    parser.add_argument('--validate', action='store_true', help='Run Monte Carlo validation with strict criteria')
     parser.add_argument('--start-year', type=int, help='Start year for sequential analysis')
     parser.add_argument('--end-year', type=int, help='End year for sequential analysis')
     
@@ -725,6 +811,12 @@ def main():
         show_plots=args.show_plots,
         save_plots=args.save_plots
     )
+    
+    # Check if validation mode
+    if args.validate:
+        # Run Monte Carlo validation with 50 samples
+        runner.run_monte_carlo(n_simulations=50, sample_size_days=90, validate=True)
+        return
     
     # Check if Monte Carlo mode
     if args.monte_carlo:
